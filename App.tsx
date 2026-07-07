@@ -31,13 +31,17 @@ type DailyLog = {
 const GOALS_KEY = 'goals';
 const LOGS_KEY = 'logs';
 
-// Today's date as YYYY-MM-DD, using the phone's local time.
-function todayString(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
+// Format a Date as YYYY-MM-DD, using the phone's local time.
+function formatDate(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+// Today's date as YYYY-MM-DD.
+function todayString(): string {
+  return formatDate(new Date());
 }
 
 export default function App() {
@@ -113,6 +117,30 @@ export default function App() {
     }
   };
 
+  // --- Numbers computed fresh from the logs (never saved anywhere) ---
+
+  // Streak: how many days in a row, counting back from today, this goal
+  // is done. The first day that is missing or not done (starting at today)
+  // stops the count — so if today isn't ticked yet, the streak is 0.
+  const streakFor = (goalId: string): number => {
+    // The set of dates this goal was marked done.
+    const doneDates = new Set(
+      logs.filter((l) => l.goalId === goalId && l.done).map((l) => l.date),
+    );
+    let streak = 0;
+    const cursor = new Date(); // start at today and walk backwards
+    while (doneDates.has(formatDate(cursor))) {
+      streak += 1;
+      cursor.setDate(cursor.getDate() - 1); // go to the previous day
+    }
+    return streak;
+  };
+
+  // Total: how many days this goal was ever done (gaps don't matter).
+  const totalFor = (goalId: string): number => {
+    return logs.filter((l) => l.goalId === goalId && l.done).length;
+  };
+
   // --- Temporary debug button: show every saved log in a popup ---
 
   const showAllLogs = () => {
@@ -158,6 +186,8 @@ export default function App() {
         }
         renderItem={({ item }) => {
           const done = isDoneToday(item.id);
+          const streak = streakFor(item.id);
+          const total = totalFor(item.id);
           return (
             <View style={styles.goalRow}>
               <Pressable
@@ -167,9 +197,14 @@ export default function App() {
                 <View style={[styles.checkbox, done && styles.checkboxDone]}>
                   {done && <Text style={styles.checkmark}>{'✓'}</Text>}
                 </View>
-                <Text style={[styles.goalName, done && styles.goalNameDone]}>
-                  {item.name}
-                </Text>
+                <View style={styles.goalTexts}>
+                  <Text style={[styles.goalName, done && styles.goalNameDone]}>
+                    {item.name}
+                  </Text>
+                  <Text style={styles.goalStats}>
+                    🔥 Streak {streak}  ·  Total {total}
+                  </Text>
+                </View>
               </Pressable>
               <Pressable
                 style={styles.deleteButton}
@@ -268,9 +303,16 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     lineHeight: 18,
   },
+  goalTexts: {
+    flex: 1,
+  },
   goalName: {
     fontSize: 16,
-    flex: 1,
+  },
+  goalStats: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 3,
   },
   goalNameDone: {
     textDecorationLine: 'line-through',
