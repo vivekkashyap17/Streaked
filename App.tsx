@@ -10,12 +10,30 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
+import DateTimePicker, {
+  DateTimePickerEvent,
+} from '@react-native-community/datetimepicker';
 
-// A single goal. A goal only needs an id and a name
-// (no dates, streaks, or reminders here).
+// Show reminders as a banner (and play a sound) even when the app is open.
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
+// A single goal. Name plus an optional daily reminder.
 type Goal = {
   id: string;
   name: string;
+  // These three are set together when a reminder is on, and cleared together
+  // when it's off. notificationId is what we use to cancel the reminder.
+  reminderHour?: number; // 0-23
+  reminderMinute?: number; // 0-59
+  notificationId?: string;
 };
 
 // A daily log: whether one goal was done on one day.
@@ -52,6 +70,14 @@ function dayLabel(d: Date): string {
   return `${WEEKDAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
 
+// A friendly time like "8:30 AM".
+function formatTime(hour: number, minute: number): string {
+  const ampm = hour < 12 ? 'AM' : 'PM';
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  const mm = String(minute).padStart(2, '0');
+  return `${h12}:${mm} ${ampm}`;
+}
+
 // Today's date as YYYY-MM-DD.
 function todayString(): string {
   return formatDate(new Date());
@@ -66,6 +92,8 @@ export default function App() {
   const [logs, setLogs] = useState<DailyLog[]>([]);
   // Which screen is showing: the goals list or the history.
   const [screen, setScreen] = useState<'goals' | 'history'>('goals');
+  // The goal we're currently picking a reminder time for (null = picker hidden).
+  const [pickingGoalId, setPickingGoalId] = useState<string | null>(null);
 
   const today = todayString();
 
@@ -76,6 +104,15 @@ export default function App() {
     });
     AsyncStorage.getItem(LOGS_KEY).then((stored) => {
       if (stored !== null) setLogs(JSON.parse(stored));
+    });
+  }, []);
+
+  // Create the Android notification channel once (needed on Android for
+  // notifications to show; harmless on other platforms).
+  useEffect(() => {
+    Notifications.setNotificationChannelAsync('reminders', {
+      name: 'Reminders',
+      importance: Notifications.AndroidImportance.DEFAULT,
     });
   }, []);
 
@@ -159,6 +196,98 @@ export default function App() {
   // Was this goal done on a specific day? (used by the history screen)
   const wasDoneOn = (goalId: string, date: string): boolean => {
     return logs.some((l) => l.goalId === goalId && l.date === date && l.done);
+  };
+
+  // --- Reminders (Phase 5) ---
+
+  // Ask the phone for notification permission. Returns true if we're allowed.
+  const ensurePermission = async (): Promise<boolean> => {
+    const current = await Notifications.getPermissionsAsync();
+    if (current.granted) return true;
+    const asked = await Notifications.requestPermissionsAsync();
+    return asked.granted;
+  };
+
+  // Open the time picker for a goal.
+  const startSetReminder = (goalId: string) => {
+    setPickingGoalId(goalId);
+  };
+
+  // Called when the time picker closes.
+  const onTimePicked = async (event: DateTimePickerEvent, date?: Date) => {
+    const goalId = pickingGoalId;
+    setPickingGoalId(null); // hide the picker
+
+    // 'set' means the user confirmed a time; anything else is a cancel.
+    if (event.type !== 'set' || !date || goalId === null) return;
+
+    // Make sure we're allowed to send notifications.
+    const allowed = await ensurePermission();
+    if (!allowed) {
+      Alert.alert(
+        'Notifications are off',
+        'To get reminders, allow notifications for Expo Go in your phone settings, then try again.',
+      );
+      return;
+    }
+
+    const goal = goals.find((g) => g.id === goalId);
+    if (!goal) return;
+
+    const hour = date.getHours();
+    const minute = date.getMinutes();
+
+    try {
+      // If this goal already had a reminder, cancel the old one first.
+      if (goal.notificationId) {
+        await Notifications.cancelScheduledNotificationAsync(goal.notificationId);
+      }
+
+      // Schedule a notification that repeats every day at this time.
+      const notificationId = await Notifications.scheduleNotificationAsync({
+        content: { title: 'Streaked reminder', body: goal.name },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DAILY,
+          hour,
+          minute,
+          channelId: 'reminders',
+        },
+      });
+
+      // Save the reminder details onto the goal.
+      saveGoals(
+        goals.map((g) =>
+          g.id === goalId
+            ? { ...g, reminderHour: hour, reminderMinute: minute, notificationId }
+            : g,
+        ),
+      );
+    } catch (e) {
+      Alert.alert(
+        'Could not set reminder',
+        'Something went wrong scheduling the notification.',
+      );
+    }
+  };
+
+  // Turn a goal's reminder off: cancel the notification and clear its fields.
+  const turnOffReminder = async (goalId: string) => {
+    const goal = goals.find((g) => g.id === goalId);
+    if (goal && goal.notificationId) {
+      await Notifications.cancelScheduledNotificationAsync(goal.notificationId);
+    }
+    saveGoals(
+      goals.map((g) =>
+        g.id === goalId
+          ? {
+              ...g,
+              reminderHour: undefined,
+              reminderMinute: undefined,
+              notificationId: undefined,
+            }
+          : g,
+      ),
+    );
   };
 
   // --- Temporary debug button: show every saved log in a popup ---
@@ -267,7 +396,7 @@ export default function App() {
         </Pressable>
       </View>
 
-      {/* The list: tap a goal to tick it for today; Delete removes the goal */}
+      {/* The list of goals */}
       <FlatList
         data={goals}
         keyExtractor={(goal) => goal.id}
@@ -278,30 +407,60 @@ export default function App() {
           const done = isDoneToday(item.id);
           const streak = streakFor(item.id);
           const total = totalFor(item.id);
+          const hasReminder =
+            item.reminderHour !== undefined &&
+            item.reminderMinute !== undefined;
           return (
             <View style={styles.goalRow}>
-              <Pressable
-                style={styles.goalMain}
-                onPress={() => toggleToday(item.id)}
-              >
-                <View style={[styles.checkbox, done && styles.checkboxDone]}>
-                  {done && <Text style={styles.checkmark}>{'✓'}</Text>}
-                </View>
-                <View style={styles.goalTexts}>
-                  <Text style={[styles.goalName, done && styles.goalNameDone]}>
-                    {item.name}
-                  </Text>
-                  <Text style={styles.goalStats}>
-                    🔥 Streak {streak}  ·  Total {total}
-                  </Text>
-                </View>
-              </Pressable>
-              <Pressable
-                style={styles.deleteButton}
-                onPress={() => deleteGoal(item.id)}
-              >
-                <Text style={styles.deleteButtonText}>Delete</Text>
-              </Pressable>
+              {/* Top: checkbox + name/stats (tap to tick), and Delete */}
+              <View style={styles.goalTopRow}>
+                <Pressable
+                  style={styles.goalMain}
+                  onPress={() => toggleToday(item.id)}
+                >
+                  <View style={[styles.checkbox, done && styles.checkboxDone]}>
+                    {done && <Text style={styles.checkmark}>{'✓'}</Text>}
+                  </View>
+                  <View style={styles.goalTexts}>
+                    <Text style={[styles.goalName, done && styles.goalNameDone]}>
+                      {item.name}
+                    </Text>
+                    <Text style={styles.goalStats}>
+                      🔥 Streak {streak}  ·  Total {total}
+                    </Text>
+                  </View>
+                </Pressable>
+                <Pressable
+                  style={styles.deleteButton}
+                  onPress={() => deleteGoal(item.id)}
+                >
+                  <Text style={styles.deleteButtonText}>Delete</Text>
+                </Pressable>
+              </View>
+
+              {/* Bottom: the daily reminder controls */}
+              <View style={styles.reminderRow}>
+                {hasReminder ? (
+                  <>
+                    <Text style={styles.reminderText}>
+                      🔔 {formatTime(item.reminderHour!, item.reminderMinute!)}
+                    </Text>
+                    <Pressable
+                      style={styles.reminderOffButton}
+                      onPress={() => turnOffReminder(item.id)}
+                    >
+                      <Text style={styles.reminderOffText}>Turn off</Text>
+                    </Pressable>
+                  </>
+                ) : (
+                  <Pressable
+                    style={styles.reminderSetButton}
+                    onPress={() => startSetReminder(item.id)}
+                  >
+                    <Text style={styles.reminderSetText}>Set reminder</Text>
+                  </Pressable>
+                )}
+              </View>
             </View>
           );
         }}
@@ -311,6 +470,15 @@ export default function App() {
       <Pressable style={styles.debugButton} onPress={showAllLogs}>
         <Text style={styles.debugButtonText}>Show saved logs (debug)</Text>
       </Pressable>
+
+      {/* The time picker only appears while choosing a reminder time */}
+      {pickingGoalId !== null && (
+        <DateTimePicker
+          mode="time"
+          value={new Date()}
+          onChange={onTimePicked}
+        />
+      )}
 
       <StatusBar style="auto" />
     </View>
@@ -376,13 +544,15 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   goalRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     backgroundColor: '#f2f2f2',
     borderRadius: 8,
     padding: 14,
     marginBottom: 10,
+  },
+  goalTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   goalMain: {
     flexDirection: 'row',
@@ -433,6 +603,40 @@ const styles = StyleSheet.create({
   deleteButtonText: {
     color: '#fff',
     fontSize: 14,
+    fontWeight: 'bold',
+  },
+  reminderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  reminderText: {
+    fontSize: 14,
+    color: '#333',
+    marginRight: 12,
+  },
+  reminderSetButton: {
+    borderWidth: 1,
+    borderColor: '#0e7a4f',
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  reminderSetText: {
+    color: '#0e7a4f',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  reminderOffButton: {
+    borderWidth: 1,
+    borderColor: '#999',
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  reminderOffText: {
+    color: '#555',
+    fontSize: 13,
     fontWeight: 'bold',
   },
   empty: {
