@@ -31,12 +31,25 @@ type DailyLog = {
 const GOALS_KEY = 'goals';
 const LOGS_KEY = 'logs';
 
+// Used to build friendly day labels without relying on Intl
+// (React Native's engine has limited Intl support).
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
 // Format a Date as YYYY-MM-DD, using the phone's local time.
 function formatDate(d: Date): string {
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+// A readable label like "Mon, Jul 7".
+function dayLabel(d: Date): string {
+  return `${WEEKDAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
 
 // Today's date as YYYY-MM-DD.
@@ -51,6 +64,8 @@ export default function App() {
   const [goals, setGoals] = useState<Goal[]>([]);
   // Every daily log we have saved.
   const [logs, setLogs] = useState<DailyLog[]>([]);
+  // Which screen is showing: the goals list or the history.
+  const [screen, setScreen] = useState<'goals' | 'history'>('goals');
 
   const today = todayString();
 
@@ -141,6 +156,11 @@ export default function App() {
     return logs.filter((l) => l.goalId === goalId && l.done).length;
   };
 
+  // Was this goal done on a specific day? (used by the history screen)
+  const wasDoneOn = (goalId: string, date: string): boolean => {
+    return logs.some((l) => l.goalId === goalId && l.date === date && l.done);
+  };
+
   // --- Temporary debug button: show every saved log in a popup ---
 
   const showAllLogs = () => {
@@ -158,9 +178,79 @@ export default function App() {
     Alert.alert(`Saved logs (${logs.length})`, lines.join('\n'));
   };
 
+  // ===== History screen: the last 30 days =====
+  if (screen === 'history') {
+    // Build the last 30 days, newest first.
+    const days: { date: string; label: string }[] = [];
+    const cursor = new Date();
+    for (let i = 0; i < 30; i++) {
+      days.push({ date: formatDate(cursor), label: dayLabel(cursor) });
+      cursor.setDate(cursor.getDate() - 1); // step back one day
+    }
+
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Last 30 days</Text>
+          <Pressable
+            style={styles.navButton}
+            onPress={() => setScreen('goals')}
+          >
+            <Text style={styles.navButtonText}>Back</Text>
+          </Pressable>
+        </View>
+
+        <FlatList
+          data={days}
+          keyExtractor={(day) => day.date}
+          style={styles.historyList}
+          renderItem={({ item }) => (
+            <View style={styles.dayCard}>
+              <Text style={styles.dayLabel}>
+                {item.date === today ? `${item.label} · Today` : item.label}
+              </Text>
+
+              {goals.length === 0 ? (
+                <Text style={styles.dayEmpty}>No goals yet.</Text>
+              ) : (
+                goals.map((goal) => {
+                  const done = wasDoneOn(goal.id, item.date);
+                  return (
+                    <View key={goal.id} style={styles.historyRow}>
+                      <Text
+                        style={[
+                          styles.historyMark,
+                          done ? styles.markDone : styles.markMissed,
+                        ]}
+                      >
+                        {done ? '✓' : '✗'}
+                      </Text>
+                      <Text style={styles.historyName}>{goal.name}</Text>
+                    </View>
+                  );
+                })
+              )}
+            </View>
+          )}
+        />
+
+        <StatusBar style="auto" />
+      </View>
+    );
+  }
+
+  // ===== Main screen: today's goals =====
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>My Goals</Text>
+      <View style={styles.header}>
+        <Text style={styles.title}>My Goals</Text>
+        <Pressable
+          style={styles.navButton}
+          onPress={() => setScreen('history')}
+        >
+          <Text style={styles.navButtonText}>History</Text>
+        </Pressable>
+      </View>
       <Text style={styles.subtitle}>Today · {today}</Text>
 
       {/* Input row: type a goal and press Add */}
@@ -233,6 +323,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     paddingHorizontal: 20,
     paddingTop: 60, // leave room below the status bar
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  navButton: {
+    backgroundColor: '#0e7a4f',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  navButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   title: {
     fontSize: 28,
@@ -346,5 +452,44 @@ const styles = StyleSheet.create({
   debugButtonText: {
     color: '#555',
     fontSize: 14,
+  },
+  // History screen
+  historyList: {
+    marginTop: 16,
+  },
+  dayCard: {
+    backgroundColor: '#f2f2f2',
+    borderRadius: 8,
+    padding: 14,
+    marginBottom: 10,
+  },
+  dayLabel: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  dayEmpty: {
+    fontSize: 14,
+    color: '#888',
+  },
+  historyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 3,
+  },
+  historyMark: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    width: 22,
+  },
+  markDone: {
+    color: '#0e7a4f',
+  },
+  markMissed: {
+    color: '#c7c7c7',
+  },
+  historyName: {
+    fontSize: 15,
+    flex: 1,
   },
 });
