@@ -43,3 +43,6 @@ yarn-error.*
 #claude
 .claude/
 CLAUDE.md
+
+# build log (local only — read it via the published artifact)
+WORKLOG.html
