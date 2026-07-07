@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  Alert,
   FlatList,
   Pressable,
   StyleSheet,
@@ -10,59 +11,129 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// A single goal. For now we only need an id and a name
-// (no dates, streaks, or reminders yet).
+// A single goal. A goal only needs an id and a name
+// (no dates, streaks, or reminders here).
 type Goal = {
   id: string;
   name: string;
 };
 
-// The key we use to store the goals list on the device.
-const STORAGE_KEY = 'goals';
+// A daily log: whether one goal was done on one day.
+// There is at most one log per goal per day.
+// Past logs are never changed or deleted.
+type DailyLog = {
+  goalId: string;
+  date: string; // YYYY-MM-DD
+  done: boolean;
+};
+
+// Goals and logs are two separate stores on the device.
+const GOALS_KEY = 'goals';
+const LOGS_KEY = 'logs';
+
+// Today's date as YYYY-MM-DD, using the phone's local time.
+function todayString(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 export default function App() {
   // The text currently typed in the input box.
   const [text, setText] = useState('');
-  // The list of goals shown on screen.
+  // The list of goals.
   const [goals, setGoals] = useState<Goal[]>([]);
+  // Every daily log we have saved.
+  const [logs, setLogs] = useState<DailyLog[]>([]);
 
-  // Load the saved goals once, when the app starts.
+  const today = todayString();
+
+  // Load the saved goals and logs once, when the app starts.
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY).then((stored) => {
-      if (stored !== null) {
-        setGoals(JSON.parse(stored));
-      }
+    AsyncStorage.getItem(GOALS_KEY).then((stored) => {
+      if (stored !== null) setGoals(JSON.parse(stored));
+    });
+    AsyncStorage.getItem(LOGS_KEY).then((stored) => {
+      if (stored !== null) setLogs(JSON.parse(stored));
     });
   }, []);
 
-  // Save a new goals list to the device AND update the screen.
+  // --- Goals: save, add, delete ---
+
   const saveGoals = async (newGoals: Goal[]) => {
     setGoals(newGoals);
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newGoals));
+    await AsyncStorage.setItem(GOALS_KEY, JSON.stringify(newGoals));
   };
 
-  // Add the typed goal to the list.
   const addGoal = () => {
     const name = text.trim();
-    if (name === '') {
-      return; // ignore empty input
-    }
-    const newGoal: Goal = {
-      id: Date.now().toString(), // simple unique id
-      name: name,
-    };
+    if (name === '') return; // ignore empty input
+    const newGoal: Goal = { id: Date.now().toString(), name };
     saveGoals([...goals, newGoal]);
     setText(''); // clear the input box
   };
 
-  // Remove a goal by its id.
   const deleteGoal = (id: string) => {
+    // Remove the goal, but keep its logs — history is never deleted.
     saveGoals(goals.filter((goal) => goal.id !== id));
+  };
+
+  // --- Logs: save, read today, tick/untick today ---
+
+  const saveLogs = async (newLogs: DailyLog[]) => {
+    setLogs(newLogs);
+    await AsyncStorage.setItem(LOGS_KEY, JSON.stringify(newLogs));
+  };
+
+  // Is this goal marked done for today?
+  const isDoneToday = (goalId: string): boolean => {
+    const log = logs.find((l) => l.goalId === goalId && l.date === today);
+    return log ? log.done : false;
+  };
+
+  // Tick or untick a goal for today. Only TODAY's log is ever touched;
+  // logs from previous days are left exactly as they are.
+  const toggleToday = (goalId: string) => {
+    const existing = logs.find(
+      (l) => l.goalId === goalId && l.date === today,
+    );
+
+    if (existing) {
+      // Flip done on today's log; every other log stays the same.
+      const newLogs = logs.map((l) =>
+        l.goalId === goalId && l.date === today ? { ...l, done: !l.done } : l,
+      );
+      saveLogs(newLogs);
+    } else {
+      // No log for today yet: add one, marked done.
+      const newLog: DailyLog = { goalId, date: today, done: true };
+      saveLogs([...logs, newLog]);
+    }
+  };
+
+  // --- Temporary debug button: show every saved log in a popup ---
+
+  const showAllLogs = () => {
+    if (logs.length === 0) {
+      Alert.alert('Saved logs', 'No logs yet.');
+      return;
+    }
+    // Turn each log into a readable line: date, tick mark, goal name.
+    const lines = logs.map((l) => {
+      const goal = goals.find((g) => g.id === l.goalId);
+      const name = goal ? goal.name : '(deleted goal)';
+      const mark = l.done ? '✓' : '✗'; // ✓ or ✗
+      return `${l.date}  ${mark}  ${name}`;
+    });
+    Alert.alert(`Saved logs (${logs.length})`, lines.join('\n'));
   };
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>My Goals</Text>
+      <Text style={styles.subtitle}>Today · {today}</Text>
 
       {/* Input row: type a goal and press Add */}
       <View style={styles.inputRow}>
@@ -78,25 +149,43 @@ export default function App() {
         </Pressable>
       </View>
 
-      {/* The list of goals, each with a delete button */}
+      {/* The list: tap a goal to tick it for today; Delete removes the goal */}
       <FlatList
         data={goals}
         keyExtractor={(goal) => goal.id}
         ListEmptyComponent={
           <Text style={styles.empty}>No goals yet. Add one above.</Text>
         }
-        renderItem={({ item }) => (
-          <View style={styles.goalRow}>
-            <Text style={styles.goalName}>{item.name}</Text>
-            <Pressable
-              style={styles.deleteButton}
-              onPress={() => deleteGoal(item.id)}
-            >
-              <Text style={styles.deleteButtonText}>Delete</Text>
-            </Pressable>
-          </View>
-        )}
+        renderItem={({ item }) => {
+          const done = isDoneToday(item.id);
+          return (
+            <View style={styles.goalRow}>
+              <Pressable
+                style={styles.goalMain}
+                onPress={() => toggleToday(item.id)}
+              >
+                <View style={[styles.checkbox, done && styles.checkboxDone]}>
+                  {done && <Text style={styles.checkmark}>{'✓'}</Text>}
+                </View>
+                <Text style={[styles.goalName, done && styles.goalNameDone]}>
+                  {item.name}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={styles.deleteButton}
+                onPress={() => deleteGoal(item.id)}
+              >
+                <Text style={styles.deleteButtonText}>Delete</Text>
+              </Pressable>
+            </View>
+          );
+        }}
       />
+
+      {/* Temporary debug button — will be removed in a later phase */}
+      <Pressable style={styles.debugButton} onPress={showAllLogs}>
+        <Text style={styles.debugButtonText}>Show saved logs (debug)</Text>
+      </Pressable>
 
       <StatusBar style="auto" />
     </View>
@@ -113,6 +202,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: 'bold',
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#888',
+    marginTop: 2,
     marginBottom: 20,
   },
   inputRow: {
@@ -149,10 +243,38 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 10,
   },
+  goalMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 10,
+  },
+  checkbox: {
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#0e7a4f',
+    marginRight: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxDone: {
+    backgroundColor: '#0e7a4f',
+  },
+  checkmark: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    lineHeight: 18,
+  },
   goalName: {
     fontSize: 16,
     flex: 1,
-    marginRight: 10,
+  },
+  goalNameDone: {
+    textDecorationLine: 'line-through',
+    color: '#888',
   },
   deleteButton: {
     backgroundColor: '#c0392b',
@@ -170,5 +292,17 @@ const styles = StyleSheet.create({
     color: '#888',
     textAlign: 'center',
     marginTop: 20,
+  },
+  debugButton: {
+    borderWidth: 1,
+    borderColor: '#bbb',
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginVertical: 12,
+  },
+  debugButtonText: {
+    color: '#555',
+    fontSize: 14,
   },
 });
