@@ -56,6 +56,9 @@ const THEME_KEY = 'themePref';
 // The saved sort choice.
 const SORT_KEY = 'sortMode';
 
+// Streak lengths (in days) worth celebrating. Add more here anytime.
+const MILESTONES = [7, 30, 100];
+
 // Which theme the user picked. 'system' follows the phone's light/dark setting.
 type ThemePref = 'light' | 'dark' | 'system';
 
@@ -185,6 +188,22 @@ function formatTime(hour: number, minute: number): string {
 // Today's date as YYYY-MM-DD.
 function todayString(): string {
   return formatDate(new Date());
+}
+
+// The current streak for a goal, computed from a given list of logs: how many
+// days in a row up to today the goal is done. Pulled out as a plain function so
+// it can be run against a just-updated log list (React state isn't immediate).
+function streakFromLogs(logsList: DailyLog[], goalId: string): number {
+  const doneDates = new Set(
+    logsList.filter((l) => l.goalId === goalId && l.done).map((l) => l.date),
+  );
+  let streak = 0;
+  const cursor = new Date(); // start at today and walk backwards
+  while (doneDates.has(formatDate(cursor))) {
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
 }
 
 export default function App() {
@@ -393,41 +412,43 @@ export default function App() {
   // Tick or untick a goal for today. Only TODAY's log is ever touched;
   // logs from previous days are left exactly as they are.
   const toggleToday = (goalId: string) => {
-    const existing = logs.find(
-      (l) => l.goalId === goalId && l.date === today,
-    );
+    const existing = logs.find((l) => l.goalId === goalId && l.date === today);
 
+    // Work out the new logs and whether the goal is now done for today.
+    let newLogs: DailyLog[];
+    let nowDone: boolean;
     if (existing) {
       // Flip done on today's log; every other log stays the same.
-      const newLogs = logs.map((l) =>
-        l.goalId === goalId && l.date === today ? { ...l, done: !l.done } : l,
+      nowDone = !existing.done;
+      newLogs = logs.map((l) =>
+        l.goalId === goalId && l.date === today ? { ...l, done: nowDone } : l,
       );
-      saveLogs(newLogs);
     } else {
       // No log for today yet: add one, marked done.
-      const newLog: DailyLog = { goalId, date: today, done: true };
-      saveLogs([...logs, newLog]);
+      nowDone = true;
+      newLogs = [...logs, { goalId, date: today, done: true }];
+    }
+    saveLogs(newLogs);
+
+    // If ticking today just landed the streak on a milestone, celebrate.
+    if (nowDone) {
+      const newStreak = streakFromLogs(newLogs, goalId);
+      if (MILESTONES.includes(newStreak)) {
+        const goal = goals.find((g) => g.id === goalId);
+        const name = goal ? goal.name : 'This goal';
+        Alert.alert(
+          `🎉 ${newStreak}-day streak!`,
+          `${name} is on a ${newStreak}-day streak. Keep it going!`,
+        );
+      }
     }
   };
 
   // --- Numbers computed fresh from the logs (never saved anywhere) ---
 
-  // Streak: how many days in a row, counting back from today, this goal
-  // is done. The first day that is missing or not done (starting at today)
-  // stops the count — so if today isn't ticked yet, the streak is 0.
-  const streakFor = (goalId: string): number => {
-    // The set of dates this goal was marked done.
-    const doneDates = new Set(
-      logs.filter((l) => l.goalId === goalId && l.done).map((l) => l.date),
-    );
-    let streak = 0;
-    const cursor = new Date(); // start at today and walk backwards
-    while (doneDates.has(formatDate(cursor))) {
-      streak += 1;
-      cursor.setDate(cursor.getDate() - 1); // go to the previous day
-    }
-    return streak;
-  };
+  // Streak: how many days in a row, counting back from today, this goal is
+  // done (0 until today is ticked). Uses the shared helper on the live logs.
+  const streakFor = (goalId: string): number => streakFromLogs(logs, goalId);
 
   // Best streak: the longest run of consecutive done days ever, anywhere in
   // the history (not just up to today). Also computed fresh, never stored.
