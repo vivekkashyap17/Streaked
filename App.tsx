@@ -51,6 +51,11 @@ type DailyLog = {
 // Goals and logs are two separate stores on the device.
 const GOALS_KEY = 'goals';
 const LOGS_KEY = 'logs';
+// The saved theme choice.
+const THEME_KEY = 'themePref';
+
+// Which theme the user picked. 'system' follows the phone's light/dark setting.
+type ThemePref = 'light' | 'dark' | 'system';
 
 // Used to build friendly day labels without relying on Intl
 // (React Native's engine has limited Intl support).
@@ -197,11 +202,23 @@ export default function App() {
   // The goal we're currently renaming (null = not editing), and its edited text.
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
+  // The chosen theme: 'system' (follow the phone), or a forced 'light' / 'dark'.
+  const [themePref, setThemePref] = useState<ThemePref>('system');
 
-  // Follow the phone's light/dark setting, and build the styles for it.
-  const scheme = useColorScheme();
-  const theme = scheme === 'dark' ? darkTheme : lightTheme;
+  // Work out which theme to use, then build the styles for it. When the choice
+  // is 'system' we follow the phone's setting; otherwise we force one.
+  const systemScheme = useColorScheme();
+  const activeScheme = themePref === 'system' ? systemScheme : themePref;
+  const theme = activeScheme === 'dark' ? darkTheme : lightTheme;
   const styles = useMemo(() => makeStyles(theme), [theme]);
+
+  // A short label for the theme button, e.g. "🌙 Dark".
+  const themeLabel =
+    themePref === 'light'
+      ? '☀️ Light'
+      : themePref === 'dark'
+      ? '🌙 Dark'
+      : '⚙️ System';
 
   const today = todayString();
 
@@ -212,6 +229,11 @@ export default function App() {
     });
     AsyncStorage.getItem(LOGS_KEY).then((stored) => {
       if (stored !== null) setLogs(JSON.parse(stored));
+    });
+    AsyncStorage.getItem(THEME_KEY).then((stored) => {
+      if (stored === 'light' || stored === 'dark' || stored === 'system') {
+        setThemePref(stored);
+      }
     });
   }, []);
 
@@ -265,6 +287,14 @@ export default function App() {
     const newGoals = [...goals];
     [newGoals[index], newGoals[target]] = [newGoals[target], newGoals[index]];
     saveGoals(newGoals);
+  };
+
+  // Cycle the theme choice: System → Light → Dark → System, and remember it.
+  const cycleTheme = () => {
+    const next: ThemePref =
+      themePref === 'system' ? 'light' : themePref === 'light' ? 'dark' : 'system';
+    setThemePref(next);
+    AsyncStorage.setItem(THEME_KEY, next);
   };
 
   // Ask before deleting, so a goal can't vanish on a single accidental tap.
@@ -708,12 +738,17 @@ export default function App() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>My Goals</Text>
-        <Pressable
-          style={styles.navButton}
-          onPress={() => setScreen('history')}
-        >
-          <Text style={styles.navButtonText}>History</Text>
-        </Pressable>
+        <View style={styles.headerButtons}>
+          <Pressable style={styles.themeButton} onPress={cycleTheme}>
+            <Text style={styles.themeButtonText}>{themeLabel}</Text>
+          </Pressable>
+          <Pressable
+            style={styles.navButton}
+            onPress={() => setScreen('history')}
+          >
+            <Text style={styles.navButtonText}>History</Text>
+          </Pressable>
+        </View>
       </View>
       <Text style={styles.subtitle}>Today · {today}</Text>
 
@@ -896,6 +931,22 @@ function makeStyles(theme: Theme) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
+    },
+    headerButtons: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    themeButton: {
+      backgroundColor: theme.surfaceAlt,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      marginRight: 8,
+    },
+    themeButtonText: {
+      color: theme.text,
+      fontSize: 13,
+      fontWeight: 'bold',
     },
     navButton: {
       backgroundColor: theme.accent,
