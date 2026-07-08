@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useColorScheme,
   View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -91,6 +92,66 @@ function formatDate(d: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+// The app's colour palette. Every colour in the UI comes from here, so light
+// and dark mode are just two versions of the same named tokens. The active one
+// is chosen from the phone's system setting (see useColorScheme in App).
+type Theme = {
+  bg: string; // screen background
+  surface: string; // cards and rows
+  surfaceAlt: string; // subtle button background
+  border: string; // hairlines and card borders
+  inputBg: string; // text-input background
+  text: string; // primary text
+  muted: string; // secondary text
+  faint: string; // the faintest text / outlines
+  accent: string; // brand green (buttons, done)
+  onAccent: string; // text on an accent background
+  danger: string; // delete
+  onDanger: string;
+  neutral: string; // the Edit button
+  onNeutral: string;
+  heatMiss: string; // a not-done day in the heatmap
+  todayOutline: string; // outline around today's cell
+};
+
+const lightTheme: Theme = {
+  bg: '#f6f8f6',
+  surface: '#ffffff',
+  surfaceAlt: '#eef2ee',
+  border: '#dde3de',
+  inputBg: '#ffffff',
+  text: '#17201b',
+  muted: '#5c675f',
+  faint: '#9aa39c',
+  accent: '#0e7a4f',
+  onAccent: '#ffffff',
+  danger: '#c0392b',
+  onDanger: '#ffffff',
+  neutral: '#4a6572',
+  onNeutral: '#ffffff',
+  heatMiss: '#e4e8e4',
+  todayOutline: '#f39c12',
+};
+
+const darkTheme: Theme = {
+  bg: '#0e1210',
+  surface: '#181f1b',
+  surfaceAlt: '#232b26',
+  border: '#2c342e',
+  inputBg: '#141a16',
+  text: '#e8ede9',
+  muted: '#9aa8a0',
+  faint: '#6b766e',
+  accent: '#1f9d63',
+  onAccent: '#ffffff',
+  danger: '#d9534f',
+  onDanger: '#ffffff',
+  neutral: '#5b7683',
+  onNeutral: '#ffffff',
+  heatMiss: '#28312b',
+  todayOutline: '#f0a53a',
+};
+
 // Turn a "YYYY-MM-DD" string back into a local Date (midnight, local time).
 // Building it from parts avoids the timezone shift you get from new Date(str).
 function parseDate(s: string): Date {
@@ -136,6 +197,11 @@ export default function App() {
   // The goal we're currently renaming (null = not editing), and its edited text.
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
+
+  // Follow the phone's light/dark setting, and build the styles for it.
+  const scheme = useColorScheme();
+  const theme = scheme === 'dark' ? darkTheme : lightTheme;
+  const styles = useMemo(() => makeStyles(theme), [theme]);
 
   const today = todayString();
 
@@ -646,6 +712,7 @@ export default function App() {
         <TextInput
           style={styles.input}
           placeholder="Enter a goal"
+          placeholderTextColor={theme.faint}
           value={text}
           onChangeText={setText}
           onSubmitEditing={addGoal}
@@ -779,331 +846,352 @@ export default function App() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    paddingHorizontal: 20,
-    paddingTop: 60, // leave room below the status bar
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  navButton: {
-    backgroundColor: '#0e7a4f',
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  navButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#888',
-    marginTop: 2,
-    marginBottom: 20,
-  },
-  inputRow: {
-    flexDirection: 'row',
-    marginBottom: 20,
-  },
-  input: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
-    marginRight: 10,
-  },
-  addButton: {
-    backgroundColor: '#0e7a4f',
-    borderRadius: 8,
-    paddingHorizontal: 18,
-    justifyContent: 'center',
-  },
-  addButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  goalRow: {
-    backgroundColor: '#f2f2f2',
-    borderRadius: 8,
-    padding: 14,
-    marginBottom: 10,
-  },
-  goalTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  goalMain: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    marginRight: 10,
-  },
-  checkbox: {
-    width: 26,
-    height: 26,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: '#0e7a4f',
-    marginRight: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkboxDone: {
-    backgroundColor: '#0e7a4f',
-  },
-  checkmark: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-    lineHeight: 18,
-  },
-  goalTexts: {
-    flex: 1,
-  },
-  goalName: {
-    fontSize: 16,
-  },
-  goalStats: {
-    fontSize: 13,
-    color: '#666',
-    marginTop: 3,
-  },
-  goalNameDone: {
-    textDecorationLine: 'line-through',
-    color: '#888',
-  },
-  goalButtons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  calButton: {
-    backgroundColor: '#eef2ee',
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    marginRight: 8,
-  },
-  calButtonText: {
-    fontSize: 16,
-  },
-  editButton: {
-    backgroundColor: '#4a6572',
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginRight: 8,
-  },
-  editButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  deleteButton: {
-    backgroundColor: '#c0392b',
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  deleteButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  // Renaming a goal
-  editRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  editInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#0e7a4f',
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 16,
-    marginRight: 8,
-  },
-  editSaveButton: {
-    backgroundColor: '#0e7a4f',
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginRight: 8,
-  },
-  editSaveText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  editCancelButton: {
-    borderWidth: 1,
-    borderColor: '#999',
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  editCancelText: {
-    color: '#555',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  reminderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  reminderText: {
-    fontSize: 14,
-    color: '#333',
-    marginRight: 12,
-  },
-  reminderSetButton: {
-    borderWidth: 1,
-    borderColor: '#0e7a4f',
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  reminderSetText: {
-    color: '#0e7a4f',
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
-  reminderOffButton: {
-    borderWidth: 1,
-    borderColor: '#999',
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  reminderOffText: {
-    color: '#555',
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
-  empty: {
-    fontSize: 16,
-    color: '#888',
-    textAlign: 'center',
-    marginTop: 20,
-  },
-  // Calendar / heatmap screen
-  calCaption: {
-    fontSize: 12,
-    color: '#888',
-    marginBottom: 14,
-  },
-  calArea: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  calWeekdays: {
-    marginRight: 6,
-  },
-  calLabelSlot: {
-    height: 16,
-    marginBottom: 4,
-    justifyContent: 'center',
-  },
-  calLabelText: {
-    fontSize: 10,
-    color: '#999',
-  },
-  calGrid: {
-    flexDirection: 'row',
-  },
-  calColumn: {
-    marginRight: 4,
-  },
-  calCell: {
-    width: 16,
-    height: 16,
-    borderRadius: 3,
-    marginBottom: 4,
-  },
-  calDone: {
-    backgroundColor: '#0e7a4f',
-  },
-  calMiss: {
-    backgroundColor: '#e2e2e2',
-  },
-  calFuture: {
-    backgroundColor: 'transparent',
-  },
-  calToday: {
-    borderWidth: 2,
-    borderColor: '#f39c12',
-  },
-  calSwatch: {
-    width: 16,
-    height: 16,
-    borderRadius: 3,
-    marginRight: 6,
-  },
-  calLegend: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 18,
-  },
-  calLegendText: {
-    fontSize: 13,
-    color: '#555',
-    marginRight: 16,
-  },
-  // History screen
-  historyList: {
-    marginTop: 16,
-  },
-  dayCard: {
-    backgroundColor: '#f2f2f2',
-    borderRadius: 8,
-    padding: 14,
-    marginBottom: 10,
-  },
-  dayLabel: {
-    fontSize: 15,
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-  dayEmpty: {
-    fontSize: 14,
-    color: '#888',
-  },
-  historyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 3,
-  },
-  historyMark: {
-    fontSize: 15,
-    fontWeight: 'bold',
-    width: 22,
-  },
-  markDone: {
-    color: '#0e7a4f',
-  },
-  markMissed: {
-    color: '#c7c7c7',
-  },
-  historyName: {
-    fontSize: 15,
-    flex: 1,
-  },
-});
+// Build the stylesheet for a given theme. Called once per theme (memoized in
+// App), so switching light/dark just swaps the colours here.
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: theme.bg,
+      paddingHorizontal: 20,
+      paddingTop: 56, // leave room below the status bar
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    navButton: {
+      backgroundColor: theme.accent,
+      borderRadius: 10,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+    },
+    navButtonText: {
+      color: theme.onAccent,
+      fontSize: 14,
+      fontWeight: 'bold',
+    },
+    title: {
+      fontSize: 30,
+      fontWeight: '700',
+      letterSpacing: -0.5,
+      color: theme.text,
+      flexShrink: 1,
+      marginRight: 10,
+    },
+    subtitle: {
+      fontSize: 14,
+      color: theme.muted,
+      marginTop: 2,
+      marginBottom: 20,
+    },
+    inputRow: {
+      flexDirection: 'row',
+      marginBottom: 20,
+    },
+    input: {
+      flex: 1,
+      borderWidth: 1,
+      borderColor: theme.border,
+      backgroundColor: theme.inputBg,
+      color: theme.text,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      fontSize: 16,
+      marginRight: 10,
+    },
+    addButton: {
+      backgroundColor: theme.accent,
+      borderRadius: 10,
+      paddingHorizontal: 18,
+      justifyContent: 'center',
+    },
+    addButtonText: {
+      color: theme.onAccent,
+      fontSize: 16,
+      fontWeight: 'bold',
+    },
+    goalRow: {
+      backgroundColor: theme.surface,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: theme.border,
+      padding: 16,
+      marginBottom: 12,
+      elevation: 1,
+    },
+    goalTopRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    goalMain: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1,
+      marginRight: 10,
+    },
+    checkbox: {
+      width: 26,
+      height: 26,
+      borderRadius: 7,
+      borderWidth: 2,
+      borderColor: theme.accent,
+      marginRight: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    checkboxDone: {
+      backgroundColor: theme.accent,
+    },
+    checkmark: {
+      color: theme.onAccent,
+      fontSize: 16,
+      fontWeight: 'bold',
+      lineHeight: 18,
+    },
+    goalTexts: {
+      flex: 1,
+    },
+    goalName: {
+      fontSize: 16,
+      color: theme.text,
+    },
+    goalStats: {
+      fontSize: 13,
+      color: theme.muted,
+      marginTop: 3,
+    },
+    goalNameDone: {
+      textDecorationLine: 'line-through',
+      color: theme.muted,
+    },
+    goalButtons: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    calButton: {
+      backgroundColor: theme.surfaceAlt,
+      borderRadius: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      marginRight: 8,
+    },
+    calButtonText: {
+      fontSize: 16,
+    },
+    editButton: {
+      backgroundColor: theme.neutral,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      marginRight: 8,
+    },
+    editButtonText: {
+      color: theme.onNeutral,
+      fontSize: 14,
+      fontWeight: 'bold',
+    },
+    deleteButton: {
+      backgroundColor: theme.danger,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+    },
+    deleteButtonText: {
+      color: theme.onDanger,
+      fontSize: 14,
+      fontWeight: 'bold',
+    },
+    // Renaming a goal
+    editRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    editInput: {
+      flex: 1,
+      borderWidth: 1,
+      borderColor: theme.accent,
+      backgroundColor: theme.inputBg,
+      color: theme.text,
+      borderRadius: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      fontSize: 16,
+      marginRight: 8,
+    },
+    editSaveButton: {
+      backgroundColor: theme.accent,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      marginRight: 8,
+    },
+    editSaveText: {
+      color: theme.onAccent,
+      fontSize: 14,
+      fontWeight: 'bold',
+    },
+    editCancelButton: {
+      borderWidth: 1,
+      borderColor: theme.faint,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+    },
+    editCancelText: {
+      color: theme.muted,
+      fontSize: 14,
+      fontWeight: 'bold',
+    },
+    reminderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 12,
+    },
+    reminderText: {
+      fontSize: 14,
+      color: theme.text,
+      marginRight: 12,
+    },
+    reminderSetButton: {
+      borderWidth: 1,
+      borderColor: theme.accent,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+    },
+    reminderSetText: {
+      color: theme.accent,
+      fontSize: 13,
+      fontWeight: 'bold',
+    },
+    reminderOffButton: {
+      borderWidth: 1,
+      borderColor: theme.faint,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+    },
+    reminderOffText: {
+      color: theme.muted,
+      fontSize: 13,
+      fontWeight: 'bold',
+    },
+    empty: {
+      fontSize: 16,
+      color: theme.muted,
+      textAlign: 'center',
+      marginTop: 20,
+    },
+    // Calendar / heatmap screen
+    calCaption: {
+      fontSize: 12,
+      color: theme.muted,
+      marginBottom: 14,
+    },
+    calArea: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+    },
+    calWeekdays: {
+      marginRight: 6,
+    },
+    calLabelSlot: {
+      height: 16,
+      marginBottom: 4,
+      justifyContent: 'center',
+    },
+    calLabelText: {
+      fontSize: 10,
+      color: theme.faint,
+    },
+    calGrid: {
+      flexDirection: 'row',
+    },
+    calColumn: {
+      marginRight: 4,
+    },
+    calCell: {
+      width: 16,
+      height: 16,
+      borderRadius: 3,
+      marginBottom: 4,
+    },
+    calDone: {
+      backgroundColor: theme.accent,
+    },
+    calMiss: {
+      backgroundColor: theme.heatMiss,
+    },
+    calFuture: {
+      backgroundColor: 'transparent',
+    },
+    calToday: {
+      borderWidth: 2,
+      borderColor: theme.todayOutline,
+    },
+    calSwatch: {
+      width: 16,
+      height: 16,
+      borderRadius: 3,
+      marginRight: 6,
+    },
+    calLegend: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 18,
+    },
+    calLegendText: {
+      fontSize: 13,
+      color: theme.muted,
+      marginRight: 16,
+    },
+    // History screen
+    historyList: {
+      marginTop: 16,
+    },
+    dayCard: {
+      backgroundColor: theme.surface,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: theme.border,
+      padding: 16,
+      marginBottom: 12,
+      elevation: 1,
+    },
+    dayLabel: {
+      fontSize: 15,
+      fontWeight: 'bold',
+      color: theme.text,
+      marginBottom: 8,
+    },
+    dayEmpty: {
+      fontSize: 14,
+      color: theme.muted,
+    },
+    historyRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 3,
+    },
+    historyMark: {
+      fontSize: 15,
+      fontWeight: 'bold',
+      width: 22,
+    },
+    markDone: {
+      color: theme.accent,
+    },
+    markMissed: {
+      color: theme.faint,
+    },
+    historyName: {
+      fontSize: 15,
+      color: theme.text,
+      flex: 1,
+    },
+  });
+}
