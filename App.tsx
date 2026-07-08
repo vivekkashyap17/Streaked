@@ -170,6 +170,7 @@ type Theme = {
   onAccent: string; // text on an accent background
   danger: string; // delete
   onDanger: string;
+  dangerSoft: string; // faint delete-icon background
   neutral: string; // the Edit button
   onNeutral: string;
   heatMiss: string; // a not-done day in the heatmap
@@ -189,6 +190,7 @@ const lightTheme: Theme = {
   onAccent: '#ffffff',
   danger: '#c0392b',
   onDanger: '#ffffff',
+  dangerSoft: 'rgba(192,57,43,0.12)',
   neutral: '#4a6572',
   onNeutral: '#ffffff',
   heatMiss: '#e4e8e4',
@@ -208,6 +210,7 @@ const darkTheme: Theme = {
   onAccent: '#ffffff',
   danger: '#d9534f',
   onDanger: '#ffffff',
+  dangerSoft: 'rgba(217,83,79,0.22)',
   neutral: '#5b7683',
   onNeutral: '#ffffff',
   heatMiss: '#28312b',
@@ -1132,44 +1135,52 @@ export default function App() {
                   </Pressable>
                 </View>
               ) : (
-                <View style={styles.goalTopRow}>
-                  <Pressable
-                    style={styles.goalMain}
-                    onPress={() => toggleToday(item.id)}
-                  >
-                    <View style={[styles.checkbox, done && styles.checkboxDone]}>
-                      {done && <Text style={styles.checkmark}>{'✓'}</Text>}
-                    </View>
-                    <View style={styles.goalTexts}>
-                      <Text style={[styles.goalName, done && styles.goalNameDone]}>
+                <>
+                  {/* Top row: tap the checkbox/name to tick; icon actions right */}
+                  <View style={styles.goalTopRow}>
+                    <Pressable
+                      style={styles.goalMain}
+                      onPress={() => toggleToday(item.id)}
+                    >
+                      <View
+                        style={[styles.checkbox, done && styles.checkboxDone]}
+                      >
+                        {done && <Text style={styles.checkmark}>{'✓'}</Text>}
+                      </View>
+                      <Text
+                        style={[styles.goalName, done && styles.goalNameDone]}
+                        numberOfLines={2}
+                      >
                         {item.name}
                       </Text>
-                      <Text style={styles.goalStats}>
-                        🔥 Streak {streak}  ·  Best {best}  ·  Total {total}
-                      </Text>
+                    </Pressable>
+                    <View style={styles.goalButtons}>
+                      <Pressable
+                        style={styles.iconButton}
+                        onPress={() => openCalendar(item.id)}
+                      >
+                        <Text style={styles.iconButtonText}>📅</Text>
+                      </Pressable>
+                      <Pressable
+                        style={styles.iconButton}
+                        onPress={() => startEditGoal(item)}
+                      >
+                        <Text style={styles.iconButtonText}>✏️</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.iconButton, styles.iconButtonDanger]}
+                        onPress={() => confirmDeleteGoal(item)}
+                      >
+                        <Text style={styles.iconButtonText}>🗑️</Text>
+                      </Pressable>
                     </View>
-                  </Pressable>
-                  <View style={styles.goalButtons}>
-                    <Pressable
-                      style={styles.calButton}
-                      onPress={() => openCalendar(item.id)}
-                    >
-                      <Text style={styles.calButtonText}>📅</Text>
-                    </Pressable>
-                    <Pressable
-                      style={styles.editButton}
-                      onPress={() => startEditGoal(item)}
-                    >
-                      <Text style={styles.editButtonText}>Edit</Text>
-                    </Pressable>
-                    <Pressable
-                      style={styles.deleteButton}
-                      onPress={() => confirmDeleteGoal(item)}
-                    >
-                      <Text style={styles.deleteButtonText}>Delete</Text>
-                    </Pressable>
                   </View>
-                </View>
+
+                  {/* Stats on their own line so they never wrap awkwardly */}
+                  <Text style={styles.goalStats}>
+                    🔥 Streak {streak}   ·   Best {best}   ·   Total {total}
+                  </Text>
+                </>
               )}
 
               {/* Bottom: reminder controls on the left, reorder arrows right */}
@@ -1417,7 +1428,7 @@ function makeStyles(theme: Theme) {
     },
     goalRow: {
       backgroundColor: theme.surface,
-      borderRadius: 12,
+      borderRadius: 14,
       borderWidth: 1,
       borderColor: theme.border,
       padding: 16,
@@ -1433,7 +1444,7 @@ function makeStyles(theme: Theme) {
       flexDirection: 'row',
       alignItems: 'center',
       flex: 1,
-      marginRight: 10,
+      marginRight: 12,
     },
     checkbox: {
       width: 26,
@@ -1454,17 +1465,17 @@ function makeStyles(theme: Theme) {
       fontWeight: 'bold',
       lineHeight: 18,
     },
-    goalTexts: {
-      flex: 1,
-    },
     goalName: {
-      fontSize: 16,
+      flex: 1,
+      fontSize: 17,
+      fontWeight: '600',
       color: theme.text,
     },
     goalStats: {
       fontSize: 13,
       color: theme.muted,
-      marginTop: 3,
+      marginTop: 10,
+      marginLeft: 38, // line up under the goal name (checkbox width + gap)
     },
     goalNameDone: {
       textDecorationLine: 'line-through',
@@ -1474,38 +1485,20 @@ function makeStyles(theme: Theme) {
       flexDirection: 'row',
       alignItems: 'center',
     },
-    calButton: {
+    iconButton: {
+      width: 38,
+      height: 38,
+      borderRadius: 10,
       backgroundColor: theme.surfaceAlt,
-      borderRadius: 8,
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      marginRight: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginLeft: 8,
     },
-    calButtonText: {
+    iconButtonText: {
       fontSize: 16,
     },
-    editButton: {
-      backgroundColor: theme.neutral,
-      borderRadius: 8,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      marginRight: 8,
-    },
-    editButtonText: {
-      color: theme.onNeutral,
-      fontSize: 14,
-      fontWeight: 'bold',
-    },
-    deleteButton: {
-      backgroundColor: theme.danger,
-      borderRadius: 8,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-    },
-    deleteButtonText: {
-      color: theme.onDanger,
-      fontSize: 14,
-      fontWeight: 'bold',
+    iconButtonDanger: {
+      backgroundColor: theme.dangerSoft,
     },
     // Renaming a goal
     editRow: {
