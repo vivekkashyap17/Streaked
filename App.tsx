@@ -351,61 +351,6 @@ export default function App() {
     );
   };
 
-  // --- Temporary debug button: test an alarm sound right now ---
-
-  // Prints the real Android channel settings to the Metro console, then lets
-  // you fire a test notification 3 seconds later so you can hear the sound.
-  const testAlarm = async () => {
-    const allowed = await ensurePermission();
-    if (!allowed) {
-      Alert.alert('Notifications are off', 'Allow notifications for Streaked first.');
-      return;
-    }
-    // Show what each channel actually has (sound + importance) in the terminal.
-    const channels = await Notifications.getNotificationChannelsAsync();
-    console.log('NOTIFICATION CHANNELS:', JSON.stringify(channels, null, 2));
-
-    Alert.alert(
-      'Test alarm',
-      'Pick a sound. It fires in 3 seconds — lock your phone to hear it as a real reminder.',
-      [
-        ...REMINDER_SOUNDS.map((s) => ({
-          text: s.label,
-          onPress: () => fireTestSound(s),
-        })),
-        { text: 'Cancel', style: 'cancel' as const },
-      ],
-    );
-  };
-
-  const fireTestSound = async (sound: (typeof REMINDER_SOUNDS)[number]) => {
-    await Notifications.scheduleNotificationAsync({
-      content: { title: 'Test alarm', body: sound.label, sound: sound.file },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-        seconds: 3,
-        channelId: sound.channelId,
-      },
-    });
-  };
-
-  // --- Temporary debug button: show every saved log in a popup ---
-
-  const showAllLogs = () => {
-    if (logs.length === 0) {
-      Alert.alert('Saved logs', 'No logs yet.');
-      return;
-    }
-    // Turn each log into a readable line: date, tick mark, goal name.
-    const lines = logs.map((l) => {
-      const goal = goals.find((g) => g.id === l.goalId);
-      const name = goal ? goal.name : '(deleted goal)';
-      const mark = l.done ? '✓' : '✗'; // ✓ or ✗
-      return `${l.date}  ${mark}  ${name}`;
-    });
-    Alert.alert(`Saved logs (${logs.length})`, lines.join('\n'));
-  };
-
   // ===== History screen: the last 30 days =====
   if (screen === 'history') {
     // Build the last 30 days, newest first.
@@ -566,14 +511,6 @@ export default function App() {
           );
         }}
       />
-
-      {/* Temporary debug buttons — will be removed in a later phase */}
-      <Pressable style={styles.debugButton} onPress={testAlarm}>
-        <Text style={styles.debugButtonText}>Test alarm now (debug)</Text>
-      </Pressable>
-      <Pressable style={styles.debugButton} onPress={showAllLogs}>
-        <Text style={styles.debugButtonText}>Show saved logs (debug)</Text>
-      </Pressable>
 
       {/* The time picker only appears while choosing a reminder time */}
       {pickingGoalId !== null && (
@@ -748,18 +685,6 @@ const styles = StyleSheet.create({
     color: '#888',
     textAlign: 'center',
     marginTop: 20,
-  },
-  debugButton: {
-    borderWidth: 1,
-    borderColor: '#bbb',
-    borderRadius: 8,
-    paddingVertical: 10,
-    alignItems: 'center',
-    marginVertical: 12,
-  },
-  debugButtonText: {
-    color: '#555',
-    fontSize: 14,
   },
   // History screen
   historyList: {
