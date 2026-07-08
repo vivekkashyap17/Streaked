@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,6 +14,10 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
+import { File, Paths } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import * as DocumentPicker from 'expo-document-picker';
+import { createAudioPlayer, AudioPlayer } from 'expo-audio';
 import DateTimePicker, {
   DateTimePickerEvent,
 } from '@react-native-community/datetimepicker';
@@ -83,12 +88,49 @@ const REMINDER_SOUNDS = [
     label: 'Vibration',
     file: 'vibration.wav',
     channelId: 'reminders-vibration',
+    preview: require('./assets/sounds/vibration.wav'),
   },
   {
     key: 'effect',
     label: 'Sound effect',
     file: 'vibration_sound_effect.wav',
     channelId: 'reminders-effect',
+    preview: require('./assets/sounds/vibration_sound_effect.wav'),
+  },
+  {
+    key: 'aot',
+    label: 'Attack on Titan',
+    file: 'attack_on_titan.wav',
+    channelId: 'reminders-aot',
+    preview: require('./assets/sounds/attack_on_titan.wav'),
+  },
+  {
+    key: 'cityzen',
+    label: 'City Zen',
+    file: 'city_zen_music.wav',
+    channelId: 'reminders-cityzen',
+    preview: require('./assets/sounds/city_zen_music.wav'),
+  },
+  {
+    key: 'eren',
+    label: 'Eren Titan',
+    file: 'eren_titan.wav',
+    channelId: 'reminders-eren',
+    preview: require('./assets/sounds/eren_titan.wav'),
+  },
+  {
+    key: 'naruto',
+    label: 'Naruto Flute',
+    file: 'naruto_flute_ringtone.wav',
+    channelId: 'reminders-naruto',
+    preview: require('./assets/sounds/naruto_flute_ringtone.wav'),
+  },
+  {
+    key: 'solo',
+    label: 'Solo Leveling',
+    file: 'solo_leveling_metal.wav',
+    channelId: 'reminders-solo',
+    preview: require('./assets/sounds/solo_leveling_metal.wav'),
   },
 ];
 
@@ -223,6 +265,15 @@ export default function App() {
   const calendarScrollRef = useRef<ScrollView>(null);
   // The goal we're currently picking a reminder time for (null = picker hidden).
   const [pickingGoalId, setPickingGoalId] = useState<string | null>(null);
+  // When set, the sound-picker modal is open for this goal + chosen time.
+  const [soundPickerFor, setSoundPickerFor] = useState<{
+    goalId: string;
+    hour: number;
+    minute: number;
+  } | null>(null);
+  // The audio player used to preview a sound (and a timer to stop it).
+  const previewPlayerRef = useRef<AudioPlayer | null>(null);
+  const previewTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The goal we're currently renaming (null = not editing), and its edited text.
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
@@ -355,6 +406,98 @@ export default function App() {
         : 'manual';
     setSortMode(next);
     AsyncStorage.setItem(SORT_KEY, next);
+  };
+
+  // --- Backup: export / import all goals + logs as a JSON file ---
+
+  // Write a backup file and open the share sheet so it can be saved/sent.
+  const exportData = async () => {
+    try {
+      const payload = {
+        app: 'streaked',
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        goals,
+        logs,
+      };
+      const json = JSON.stringify(payload, null, 2);
+
+      // Write the JSON to a file in the app's cache, then share it.
+      const file = new File(Paths.cache, 'streaked-backup.json');
+      if (file.exists) file.delete();
+      file.create();
+      file.write(json);
+
+      if (!(await Sharing.isAvailableAsync())) {
+        Alert.alert('Export', `Backup saved to:\n${file.uri}`);
+        return;
+      }
+      await Sharing.shareAsync(file.uri, {
+        mimeType: 'application/json',
+        dialogTitle: 'Export Streaked backup',
+        UTI: 'public.json',
+      });
+    } catch (e) {
+      Alert.alert('Export failed', 'Could not create the backup file.');
+    }
+  };
+
+  // Pick a backup file, check it, and (after confirming) replace all data.
+  const importData = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/json',
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled) return;
+
+      const content = await new File(result.assets[0].uri).text();
+      const data = JSON.parse(content);
+
+      // Make sure the file really looks like a Streaked backup.
+      const goodGoals =
+        Array.isArray(data.goals) &&
+        data.goals.every(
+          (g: any) =>
+            g && typeof g.id === 'string' && typeof g.name === 'string',
+        );
+      const goodLogs =
+        Array.isArray(data.logs) &&
+        data.logs.every(
+          (l: any) =>
+            l &&
+            typeof l.goalId === 'string' &&
+            typeof l.date === 'string' &&
+            typeof l.done === 'boolean',
+        );
+      if (!goodGoals || !goodLogs) {
+        Alert.alert(
+          'Import failed',
+          "That file doesn't look like a Streaked backup.",
+        );
+        return;
+      }
+
+      Alert.alert(
+        'Import backup?',
+        `This replaces your current ${goals.length} goal(s) and all logs with ` +
+          `${data.goals.length} goal(s) from the file. This can't be undone.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Replace',
+            style: 'destructive',
+            onPress: () => {
+              saveGoals(data.goals);
+              saveLogs(data.logs);
+              Alert.alert('Imported', `Restored ${data.goals.length} goal(s).`);
+            },
+          },
+        ],
+      );
+    } catch (e) {
+      Alert.alert('Import failed', 'Could not read that file.');
+    }
   };
 
   // Ask before deleting, so a goal can't vanish on a single accidental tap.
@@ -534,16 +677,54 @@ export default function App() {
       return;
     }
 
-    // Ask which alarm sound to use, then schedule the reminder.
-    const hour = date.getHours();
-    const minute = date.getMinutes();
-    Alert.alert('Choose an alarm sound', undefined, [
-      ...REMINDER_SOUNDS.map((s) => ({
-        text: s.label,
-        onPress: () => scheduleReminder(goalId, hour, minute, s.key),
-      })),
-      { text: 'Cancel', style: 'cancel' as const },
-    ]);
+    // Open the sound picker (with previews); it schedules on selection.
+    setSoundPickerFor({
+      goalId,
+      hour: date.getHours(),
+      minute: date.getMinutes(),
+    });
+  };
+
+  // --- Sound preview + picking (Phase: alarm sounds) ---
+
+  // Stop and release any sound that's currently previewing.
+  const stopPreview = () => {
+    if (previewTimeoutRef.current) {
+      clearTimeout(previewTimeoutRef.current);
+      previewTimeoutRef.current = null;
+    }
+    if (previewPlayerRef.current) {
+      try {
+        previewPlayerRef.current.remove();
+      } catch {}
+      previewPlayerRef.current = null;
+    }
+  };
+
+  // Play a short preview of a sound (stops after 15s, or when another starts).
+  const previewSound = (sound: (typeof REMINDER_SOUNDS)[number]) => {
+    stopPreview();
+    const player = createAudioPlayer(sound.preview);
+    player.volume = 1.0;
+    player.play();
+    previewPlayerRef.current = player;
+    previewTimeoutRef.current = setTimeout(stopPreview, 15000);
+  };
+
+  // Close the picker without choosing.
+  const closeSoundPicker = () => {
+    stopPreview();
+    setSoundPickerFor(null);
+  };
+
+  // Choose a sound: stop preview, close the picker, and schedule the reminder.
+  const selectSound = (soundKey: string) => {
+    const picker = soundPickerFor;
+    stopPreview();
+    setSoundPickerFor(null);
+    if (picker) {
+      scheduleReminder(picker.goalId, picker.hour, picker.minute, soundKey);
+    }
   };
 
   // Schedule (or reschedule) a goal's daily reminder with the chosen sound.
@@ -993,6 +1174,16 @@ export default function App() {
         }}
       />
 
+      {/* Backup: export or import all goals + logs as a JSON file */}
+      <View style={styles.backupRow}>
+        <Pressable style={styles.backupButton} onPress={exportData}>
+          <Text style={styles.backupButtonText}>Export backup</Text>
+        </Pressable>
+        <Pressable style={styles.backupButton} onPress={importData}>
+          <Text style={styles.backupButtonText}>Import backup</Text>
+        </Pressable>
+      </View>
+
       {/* The time picker only appears while choosing a reminder time */}
       {pickingGoalId !== null && (
         <DateTimePicker
@@ -1001,6 +1192,45 @@ export default function App() {
           onChange={onTimePicked}
         />
       )}
+
+      {/* Sound picker: preview each sound (▶) then tap Use to pick it */}
+      <Modal
+        visible={soundPickerFor !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={closeSoundPicker}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Choose an alarm sound</Text>
+            <Text style={styles.modalHint}>
+              Tap ▶ to listen (up to 15s), then Use to pick.
+            </Text>
+            <ScrollView style={styles.soundList}>
+              {REMINDER_SOUNDS.map((s) => (
+                <View key={s.key} style={styles.soundRow}>
+                  <Pressable
+                    style={styles.previewButton}
+                    onPress={() => previewSound(s)}
+                  >
+                    <Text style={styles.previewButtonText}>▶</Text>
+                  </Pressable>
+                  <Text style={styles.soundName}>{s.label}</Text>
+                  <Pressable
+                    style={styles.useButton}
+                    onPress={() => selectSound(s.key)}
+                  >
+                    <Text style={styles.useButtonText}>Use</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </ScrollView>
+            <Pressable style={styles.modalCancel} onPress={closeSoundPicker}>
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       <StatusBar style="auto" />
     </View>
@@ -1305,6 +1535,96 @@ function makeStyles(theme: Theme) {
       color: theme.muted,
       textAlign: 'center',
       marginTop: 20,
+    },
+    backupRow: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 12,
+      marginBottom: 4,
+    },
+    backupButton: {
+      flex: 1,
+      backgroundColor: theme.surfaceAlt,
+      borderRadius: 10,
+      paddingVertical: 12,
+      alignItems: 'center',
+    },
+    backupButtonText: {
+      color: theme.text,
+      fontSize: 14,
+      fontWeight: 'bold',
+    },
+    // Sound picker modal
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'center',
+      paddingHorizontal: 24,
+    },
+    modalCard: {
+      backgroundColor: theme.surface,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: theme.border,
+      padding: 18,
+    },
+    modalTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: theme.text,
+    },
+    modalHint: {
+      fontSize: 12,
+      color: theme.muted,
+      marginTop: 4,
+      marginBottom: 12,
+    },
+    soundList: {
+      maxHeight: 320,
+    },
+    soundRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 6,
+    },
+    previewButton: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      backgroundColor: theme.surfaceAlt,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 12,
+    },
+    previewButtonText: {
+      color: theme.accent,
+      fontSize: 15,
+    },
+    soundName: {
+      flex: 1,
+      fontSize: 16,
+      color: theme.text,
+    },
+    useButton: {
+      backgroundColor: theme.accent,
+      borderRadius: 8,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+    },
+    useButtonText: {
+      color: theme.onAccent,
+      fontSize: 14,
+      fontWeight: 'bold',
+    },
+    modalCancel: {
+      marginTop: 14,
+      alignItems: 'center',
+      paddingVertical: 10,
+    },
+    modalCancelText: {
+      color: theme.muted,
+      fontSize: 15,
+      fontWeight: 'bold',
     },
     // Calendar / heatmap screen
     calCaption: {

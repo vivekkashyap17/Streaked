@@ -29,10 +29,17 @@
         {
           "sounds": [
             "./assets/sounds/vibration.wav",
-            "./assets/sounds/vibration_sound_effect.wav"
+            "./assets/sounds/vibration_sound_effect.wav",
+            "./assets/sounds/attack_on_titan.wav",
+            "./assets/sounds/city_zen_music.wav",
+            "./assets/sounds/eren_titan.wav",
+            "./assets/sounds/naruto_flute_ringtone.wav",
+            "./assets/sounds/solo_leveling_metal.wav"
           ]
         }
-      ]
+      ],
+      "expo-audio",
+      "expo-asset"
     ],
     "extra": {
       "eas": {
