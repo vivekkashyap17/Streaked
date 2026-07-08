@@ -70,6 +70,13 @@ type ThemePref = 'light' | 'dark' | 'system';
 // How to order the goals list. 'manual' = the user's own ↑/↓ order.
 type SortMode = 'manual' | 'streak' | 'todo' | 'name';
 
+// The theme choices shown on the Settings screen.
+const THEME_OPTIONS: { key: ThemePref; label: string }[] = [
+  { key: 'system', label: '⚙️ System' },
+  { key: 'light', label: '☀️ Light' },
+  { key: 'dark', label: '🌙 Dark' },
+];
+
 // Used to build friendly day labels without relying on Intl
 // (React Native's engine has limited Intl support).
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -255,10 +262,10 @@ export default function App() {
   const [goals, setGoals] = useState<Goal[]>([]);
   // Every daily log we have saved.
   const [logs, setLogs] = useState<DailyLog[]>([]);
-  // Which screen is showing: the goals list, the history, or one goal's calendar.
-  const [screen, setScreen] = useState<'goals' | 'history' | 'calendar'>(
-    'goals',
-  );
+  // Which screen is showing.
+  const [screen, setScreen] = useState<
+    'goals' | 'history' | 'calendar' | 'settings'
+  >('goals');
   // Which goal the calendar screen is showing (null = none chosen).
   const [calendarGoalId, setCalendarGoalId] = useState<string | null>(null);
   // Lets the calendar auto-scroll to the newest week on open.
@@ -288,14 +295,6 @@ export default function App() {
   const activeScheme = themePref === 'system' ? systemScheme : themePref;
   const theme = activeScheme === 'dark' ? darkTheme : lightTheme;
   const styles = useMemo(() => makeStyles(theme), [theme]);
-
-  // A short label for the theme button, e.g. "🌙 Dark".
-  const themeLabel =
-    themePref === 'light'
-      ? '☀️ Light'
-      : themePref === 'dark'
-      ? '🌙 Dark'
-      : '⚙️ System';
 
   // A short label for the sort button.
   const sortLabel =
@@ -386,12 +385,10 @@ export default function App() {
     saveGoals(newGoals);
   };
 
-  // Cycle the theme choice: System → Light → Dark → System, and remember it.
-  const cycleTheme = () => {
-    const next: ThemePref =
-      themePref === 'system' ? 'light' : themePref === 'light' ? 'dark' : 'system';
-    setThemePref(next);
-    AsyncStorage.setItem(THEME_KEY, next);
+  // Set the theme choice (from the Settings screen) and remember it.
+  const chooseTheme = (pref: ThemePref) => {
+    setThemePref(pref);
+    AsyncStorage.setItem(THEME_KEY, pref);
   };
 
   // Cycle the sort: Manual → Streak → To-do → Name → Manual, and remember it.
@@ -687,17 +684,22 @@ export default function App() {
 
   // --- Sound preview + picking (Phase: alarm sounds) ---
 
-  // Stop and release any sound that's currently previewing.
+  // Stop and release any sound that's currently previewing. Pause first —
+  // releasing alone doesn't reliably halt playback, which let sounds overlap.
   const stopPreview = () => {
     if (previewTimeoutRef.current) {
       clearTimeout(previewTimeoutRef.current);
       previewTimeoutRef.current = null;
     }
-    if (previewPlayerRef.current) {
+    const player = previewPlayerRef.current;
+    previewPlayerRef.current = null;
+    if (player) {
       try {
-        previewPlayerRef.current.remove();
+        player.pause();
       } catch {}
-      previewPlayerRef.current = null;
+      try {
+        player.remove();
+      } catch {}
     }
   };
 
@@ -992,14 +994,69 @@ export default function App() {
     );
   }
 
+  // ===== Settings screen: appearance + backup =====
+  if (screen === 'settings') {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Settings</Text>
+          <Pressable
+            style={styles.navButton}
+            onPress={() => setScreen('goals')}
+          >
+            <Text style={styles.navButtonText}>Back</Text>
+          </Pressable>
+        </View>
+
+        <Text style={styles.settingsLabel}>Appearance</Text>
+        <View style={styles.themeOptions}>
+          {THEME_OPTIONS.map((opt) => {
+            const active = themePref === opt.key;
+            return (
+              <Pressable
+                key={opt.key}
+                style={[styles.themeOption, active && styles.themeOptionActive]}
+                onPress={() => chooseTheme(opt.key)}
+              >
+                <Text
+                  style={[
+                    styles.themeOptionText,
+                    active && styles.themeOptionTextActive,
+                  ]}
+                >
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <Text style={styles.settingsLabel}>Backup</Text>
+        <View style={styles.backupRow}>
+          <Pressable style={styles.backupButton} onPress={exportData}>
+            <Text style={styles.backupButtonText}>Export backup</Text>
+          </Pressable>
+          <Pressable style={styles.backupButton} onPress={importData}>
+            <Text style={styles.backupButtonText}>Import backup</Text>
+          </Pressable>
+        </View>
+
+        <StatusBar style="auto" />
+      </View>
+    );
+  }
+
   // ===== Main screen: today's goals =====
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>My Goals</Text>
         <View style={styles.headerButtons}>
-          <Pressable style={styles.themeButton} onPress={cycleTheme}>
-            <Text style={styles.themeButtonText}>{themeLabel}</Text>
+          <Pressable
+            style={styles.settingsButton}
+            onPress={() => setScreen('settings')}
+          >
+            <Text style={styles.settingsButtonText}>⚙️</Text>
           </Pressable>
           <Pressable
             style={styles.navButton}
@@ -1174,16 +1231,6 @@ export default function App() {
         }}
       />
 
-      {/* Backup: export or import all goals + logs as a JSON file */}
-      <View style={styles.backupRow}>
-        <Pressable style={styles.backupButton} onPress={exportData}>
-          <Text style={styles.backupButtonText}>Export backup</Text>
-        </Pressable>
-        <Pressable style={styles.backupButton} onPress={importData}>
-          <Text style={styles.backupButtonText}>Import backup</Text>
-        </Pressable>
-      </View>
-
       {/* The time picker only appears while choosing a reminder time */}
       {pickingGoalId !== null && (
         <DateTimePicker
@@ -1256,17 +1303,49 @@ function makeStyles(theme: Theme) {
       flexDirection: 'row',
       alignItems: 'center',
     },
-    themeButton: {
+    settingsButton: {
       backgroundColor: theme.surfaceAlt,
       borderRadius: 10,
       paddingHorizontal: 12,
       paddingVertical: 8,
       marginRight: 8,
     },
-    themeButtonText: {
-      color: theme.text,
+    settingsButtonText: {
+      fontSize: 16,
+    },
+    settingsLabel: {
       fontSize: 13,
+      fontWeight: '700',
+      color: theme.muted,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+      marginTop: 22,
+      marginBottom: 10,
+    },
+    themeOptions: {
+      flexDirection: 'row',
+      gap: 10,
+    },
+    themeOption: {
+      flex: 1,
+      backgroundColor: theme.surfaceAlt,
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderRadius: 10,
+      paddingVertical: 12,
+      alignItems: 'center',
+    },
+    themeOptionActive: {
+      backgroundColor: theme.accent,
+      borderColor: theme.accent,
+    },
+    themeOptionText: {
+      color: theme.text,
+      fontSize: 14,
       fontWeight: 'bold',
+    },
+    themeOptionTextActive: {
+      color: theme.onAccent,
     },
     navButton: {
       backgroundColor: theme.accent,
