@@ -257,6 +257,16 @@ export default function App() {
     setScreen('calendar');
   };
 
+  // Move a goal up (-1) or down (+1) in the list by swapping it with its
+  // neighbour. Reordering only changes the goals' order, not their logs.
+  const moveGoal = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= goals.length) return; // already at the edge
+    const newGoals = [...goals];
+    [newGoals[index], newGoals[target]] = [newGoals[target], newGoals[index]];
+    saveGoals(newGoals);
+  };
+
   // Ask before deleting, so a goal can't vanish on a single accidental tap.
   const confirmDeleteGoal = (goal: Goal) => {
     Alert.alert(
@@ -729,7 +739,7 @@ export default function App() {
         ListEmptyComponent={
           <Text style={styles.empty}>No goals yet. Add one above.</Text>
         }
-        renderItem={({ item }) => {
+        renderItem={({ item, index }) => {
           const done = isDoneToday(item.id);
           const streak = streakFor(item.id);
           const best = bestStreakFor(item.id);
@@ -802,30 +812,56 @@ export default function App() {
                 </View>
               )}
 
-              {/* Bottom: the daily reminder controls */}
+              {/* Bottom: reminder controls on the left, reorder arrows right */}
               <View style={styles.reminderRow}>
-                {hasReminder ? (
-                  <>
-                    <Text style={styles.reminderText}>
-                      🔔 {formatTime(item.reminderHour!, item.reminderMinute!)}
-                      {'  ·  '}
-                      {soundByKey(item.reminderSound).label}
-                    </Text>
+                <View style={styles.reminderControls}>
+                  {hasReminder ? (
+                    <>
+                      <Text style={styles.reminderText}>
+                        🔔 {formatTime(item.reminderHour!, item.reminderMinute!)}
+                        {'  ·  '}
+                        {soundByKey(item.reminderSound).label}
+                      </Text>
+                      <Pressable
+                        style={styles.reminderOffButton}
+                        onPress={() => turnOffReminder(item.id)}
+                      >
+                        <Text style={styles.reminderOffText}>Turn off</Text>
+                      </Pressable>
+                    </>
+                  ) : (
                     <Pressable
-                      style={styles.reminderOffButton}
-                      onPress={() => turnOffReminder(item.id)}
+                      style={styles.reminderSetButton}
+                      onPress={() => startSetReminder(item.id)}
                     >
-                      <Text style={styles.reminderOffText}>Turn off</Text>
+                      <Text style={styles.reminderSetText}>Set reminder</Text>
                     </Pressable>
-                  </>
-                ) : (
+                  )}
+                </View>
+
+                {/* Move this goal up or down (disabled at the list edges) */}
+                <View style={styles.reorderButtons}>
                   <Pressable
-                    style={styles.reminderSetButton}
-                    onPress={() => startSetReminder(item.id)}
+                    style={[
+                      styles.reorderButton,
+                      index === 0 && styles.reorderDisabled,
+                    ]}
+                    onPress={() => moveGoal(index, -1)}
+                    disabled={index === 0}
                   >
-                    <Text style={styles.reminderSetText}>Set reminder</Text>
+                    <Text style={styles.reorderButtonText}>↑</Text>
                   </Pressable>
-                )}
+                  <Pressable
+                    style={[
+                      styles.reorderButton,
+                      index === goals.length - 1 && styles.reorderDisabled,
+                    ]}
+                    onPress={() => moveGoal(index, 1)}
+                    disabled={index === goals.length - 1}
+                  >
+                    <Text style={styles.reorderButtonText}>↓</Text>
+                  </Pressable>
+                </View>
               </View>
             </View>
           );
@@ -1049,7 +1085,34 @@ function makeStyles(theme: Theme) {
     reminderRow: {
       flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'space-between',
       marginTop: 12,
+    },
+    reminderControls: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexShrink: 1,
+    },
+    reorderButtons: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginLeft: 8,
+    },
+    reorderButton: {
+      backgroundColor: theme.surfaceAlt,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 4,
+      marginLeft: 8,
+    },
+    reorderButtonText: {
+      color: theme.text,
+      fontSize: 18,
+      fontWeight: 'bold',
+      lineHeight: 22,
+    },
+    reorderDisabled: {
+      opacity: 0.3,
     },
     reminderText: {
       fontSize: 14,
