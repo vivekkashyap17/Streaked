@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -122,8 +123,14 @@ export default function App() {
   const [goals, setGoals] = useState<Goal[]>([]);
   // Every daily log we have saved.
   const [logs, setLogs] = useState<DailyLog[]>([]);
-  // Which screen is showing: the goals list or the history.
-  const [screen, setScreen] = useState<'goals' | 'history'>('goals');
+  // Which screen is showing: the goals list, the history, or one goal's calendar.
+  const [screen, setScreen] = useState<'goals' | 'history' | 'calendar'>(
+    'goals',
+  );
+  // Which goal the calendar screen is showing (null = none chosen).
+  const [calendarGoalId, setCalendarGoalId] = useState<string | null>(null);
+  // Lets the calendar auto-scroll to the newest week on open.
+  const calendarScrollRef = useRef<ScrollView>(null);
   // The goal we're currently picking a reminder time for (null = picker hidden).
   const [pickingGoalId, setPickingGoalId] = useState<string | null>(null);
   // The goal we're currently renaming (null = not editing), and its edited text.
@@ -176,6 +183,12 @@ export default function App() {
   const deleteGoal = (id: string) => {
     // Remove the goal, but keep its logs — history is never deleted.
     saveGoals(goals.filter((goal) => goal.id !== id));
+  };
+
+  // Open the calendar/heatmap screen for one goal.
+  const openCalendar = (goalId: string) => {
+    setCalendarGoalId(goalId);
+    setScreen('calendar');
   };
 
   // Ask before deleting, so a goal can't vanish on a single accidental tap.
@@ -425,6 +438,134 @@ export default function App() {
     );
   };
 
+  // ===== Calendar screen: one goal's history as a weekly heatmap =====
+  if (screen === 'calendar') {
+    const goal = goals.find((g) => g.id === calendarGoalId);
+
+    // If the goal was deleted while we're here, just offer a way back.
+    if (!goal) {
+      return (
+        <View style={styles.container}>
+          <View style={styles.header}>
+            <Text style={styles.title}>Calendar</Text>
+            <Pressable
+              style={styles.navButton}
+              onPress={() => setScreen('goals')}
+            >
+              <Text style={styles.navButtonText}>Back</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.empty}>This goal is no longer here.</Text>
+          <StatusBar style="auto" />
+        </View>
+      );
+    }
+
+    // Build a grid: one column per week (Sunday–Saturday), the last WEEKS
+    // weeks, oldest on the left and this week on the right.
+    const WEEKS = 26;
+    const now = new Date();
+    const thisSunday = new Date(now); // the Sunday that starts this week
+    thisSunday.setDate(thisSunday.getDate() - thisSunday.getDay());
+    const firstSunday = new Date(thisSunday); // Sunday of the leftmost column
+    firstSunday.setDate(firstSunday.getDate() - (WEEKS - 1) * 7);
+
+    type Cell = { date: string; done: boolean; future: boolean };
+    const weeks: Cell[][] = [];
+    for (let w = 0; w < WEEKS; w++) {
+      const week: Cell[] = [];
+      for (let d = 0; d < 7; d++) {
+        const cellDate = new Date(firstSunday);
+        cellDate.setDate(cellDate.getDate() + w * 7 + d);
+        const ds = formatDate(cellDate);
+        week.push({
+          date: ds,
+          done: wasDoneOn(goal.id, ds),
+          future: cellDate > now, // days after today are left blank
+        });
+      }
+      weeks.push(week);
+    }
+
+    const weekdayInitials = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.title} numberOfLines={1}>
+            {goal.name}
+          </Text>
+          <Pressable
+            style={styles.navButton}
+            onPress={() => setScreen('goals')}
+          >
+            <Text style={styles.navButtonText}>Back</Text>
+          </Pressable>
+        </View>
+        <Text style={styles.subtitle}>
+          🔥 Streak {streakFor(goal.id)}  ·  Best {bestStreakFor(goal.id)}  ·
+          {'  '}Total {totalFor(goal.id)}
+        </Text>
+
+        <Text style={styles.calCaption}>
+          Last {WEEKS} weeks · each square is a day · this week is on the right
+        </Text>
+
+        <View style={styles.calArea}>
+          {/* Fixed weekday labels down the left */}
+          <View style={styles.calWeekdays}>
+            {weekdayInitials.map((lbl, i) => (
+              <View key={i} style={styles.calLabelSlot}>
+                <Text style={styles.calLabelText}>{lbl}</Text>
+              </View>
+            ))}
+          </View>
+
+          {/* The scrollable grid of week-columns (starts at the newest week) */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            ref={calendarScrollRef}
+            onContentSizeChange={() =>
+              calendarScrollRef.current?.scrollToEnd({ animated: false })
+            }
+          >
+            <View style={styles.calGrid}>
+              {weeks.map((week, wi) => (
+                <View key={wi} style={styles.calColumn}>
+                  {week.map((cell, di) => (
+                    <View
+                      key={di}
+                      style={[
+                        styles.calCell,
+                        cell.future
+                          ? styles.calFuture
+                          : cell.done
+                          ? styles.calDone
+                          : styles.calMiss,
+                        cell.date === today && styles.calToday,
+                      ]}
+                    />
+                  ))}
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+        </View>
+
+        {/* Legend */}
+        <View style={styles.calLegend}>
+          <View style={[styles.calSwatch, styles.calMiss]} />
+          <Text style={styles.calLegendText}>Not done</Text>
+          <View style={[styles.calSwatch, styles.calDone]} />
+          <Text style={styles.calLegendText}>Done</Text>
+        </View>
+
+        <StatusBar style="auto" />
+      </View>
+    );
+  }
+
   // ===== History screen: the last 30 days =====
   if (screen === 'history') {
     // Build the last 30 days, newest first.
@@ -572,6 +713,12 @@ export default function App() {
                     </View>
                   </Pressable>
                   <View style={styles.goalButtons}>
+                    <Pressable
+                      style={styles.calButton}
+                      onPress={() => openCalendar(item.id)}
+                    >
+                      <Text style={styles.calButtonText}>📅</Text>
+                    </Pressable>
                     <Pressable
                       style={styles.editButton}
                       onPress={() => startEditGoal(item)}
@@ -745,6 +892,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  calButton: {
+    backgroundColor: '#eef2ee',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginRight: 8,
+  },
+  calButtonText: {
+    fontSize: 16,
+  },
   editButton: {
     backgroundColor: '#4a6572',
     borderRadius: 6,
@@ -846,6 +1003,69 @@ const styles = StyleSheet.create({
     color: '#888',
     textAlign: 'center',
     marginTop: 20,
+  },
+  // Calendar / heatmap screen
+  calCaption: {
+    fontSize: 12,
+    color: '#888',
+    marginBottom: 14,
+  },
+  calArea: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  calWeekdays: {
+    marginRight: 6,
+  },
+  calLabelSlot: {
+    height: 16,
+    marginBottom: 4,
+    justifyContent: 'center',
+  },
+  calLabelText: {
+    fontSize: 10,
+    color: '#999',
+  },
+  calGrid: {
+    flexDirection: 'row',
+  },
+  calColumn: {
+    marginRight: 4,
+  },
+  calCell: {
+    width: 16,
+    height: 16,
+    borderRadius: 3,
+    marginBottom: 4,
+  },
+  calDone: {
+    backgroundColor: '#0e7a4f',
+  },
+  calMiss: {
+    backgroundColor: '#e2e2e2',
+  },
+  calFuture: {
+    backgroundColor: 'transparent',
+  },
+  calToday: {
+    borderWidth: 2,
+    borderColor: '#f39c12',
+  },
+  calSwatch: {
+    width: 16,
+    height: 16,
+    borderRadius: 3,
+    marginRight: 6,
+  },
+  calLegend: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 18,
+  },
+  calLegendText: {
+    fontSize: 13,
+    color: '#555',
+    marginRight: 16,
   },
   // History screen
   historyList: {
