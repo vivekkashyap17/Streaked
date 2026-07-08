@@ -119,6 +119,9 @@ export default function App() {
   const [screen, setScreen] = useState<'goals' | 'history'>('goals');
   // The goal we're currently picking a reminder time for (null = picker hidden).
   const [pickingGoalId, setPickingGoalId] = useState<string | null>(null);
+  // The goal we're currently renaming (null = not editing), and its edited text.
+  const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
 
   const today = todayString();
 
@@ -166,6 +169,29 @@ export default function App() {
   const deleteGoal = (id: string) => {
     // Remove the goal, but keep its logs — history is never deleted.
     saveGoals(goals.filter((goal) => goal.id !== id));
+  };
+
+  // --- Renaming a goal ---
+
+  // Start editing: show the goal's name in an input box.
+  const startEditGoal = (goal: Goal) => {
+    setEditingGoalId(goal.id);
+    setEditingText(goal.name);
+  };
+
+  // Stop editing without saving.
+  const cancelEdit = () => {
+    setEditingGoalId(null);
+    setEditingText('');
+  };
+
+  // Save the new name onto the goal (only the name changes; logs are untouched).
+  const saveEdit = (goalId: string) => {
+    const name = editingText.trim();
+    if (name === '') return; // ignore an empty name — stay in edit mode
+    saveGoals(goals.map((g) => (g.id === goalId ? { ...g, name } : g)));
+    setEditingGoalId(null);
+    setEditingText('');
   };
 
   // --- Logs: save, read today, tick/untick today ---
@@ -456,31 +482,62 @@ export default function App() {
             item.reminderMinute !== undefined;
           return (
             <View style={styles.goalRow}>
-              {/* Top: checkbox + name/stats (tap to tick), and Delete */}
-              <View style={styles.goalTopRow}>
-                <Pressable
-                  style={styles.goalMain}
-                  onPress={() => toggleToday(item.id)}
-                >
-                  <View style={[styles.checkbox, done && styles.checkboxDone]}>
-                    {done && <Text style={styles.checkmark}>{'✓'}</Text>}
+              {/* Top: while editing this goal, show a name input + Save/Cancel;
+                  otherwise the checkbox + name/stats (tap to tick) and the
+                  Edit / Delete buttons. */}
+              {editingGoalId === item.id ? (
+                <View style={styles.editRow}>
+                  <TextInput
+                    style={styles.editInput}
+                    value={editingText}
+                    onChangeText={setEditingText}
+                    autoFocus
+                    onSubmitEditing={() => saveEdit(item.id)}
+                  />
+                  <Pressable
+                    style={styles.editSaveButton}
+                    onPress={() => saveEdit(item.id)}
+                  >
+                    <Text style={styles.editSaveText}>Save</Text>
+                  </Pressable>
+                  <Pressable style={styles.editCancelButton} onPress={cancelEdit}>
+                    <Text style={styles.editCancelText}>Cancel</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <View style={styles.goalTopRow}>
+                  <Pressable
+                    style={styles.goalMain}
+                    onPress={() => toggleToday(item.id)}
+                  >
+                    <View style={[styles.checkbox, done && styles.checkboxDone]}>
+                      {done && <Text style={styles.checkmark}>{'✓'}</Text>}
+                    </View>
+                    <View style={styles.goalTexts}>
+                      <Text style={[styles.goalName, done && styles.goalNameDone]}>
+                        {item.name}
+                      </Text>
+                      <Text style={styles.goalStats}>
+                        🔥 Streak {streak}  ·  Total {total}
+                      </Text>
+                    </View>
+                  </Pressable>
+                  <View style={styles.goalButtons}>
+                    <Pressable
+                      style={styles.editButton}
+                      onPress={() => startEditGoal(item)}
+                    >
+                      <Text style={styles.editButtonText}>Edit</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.deleteButton}
+                      onPress={() => deleteGoal(item.id)}
+                    >
+                      <Text style={styles.deleteButtonText}>Delete</Text>
+                    </Pressable>
                   </View>
-                  <View style={styles.goalTexts}>
-                    <Text style={[styles.goalName, done && styles.goalNameDone]}>
-                      {item.name}
-                    </Text>
-                    <Text style={styles.goalStats}>
-                      🔥 Streak {streak}  ·  Total {total}
-                    </Text>
-                  </View>
-                </Pressable>
-                <Pressable
-                  style={styles.deleteButton}
-                  onPress={() => deleteGoal(item.id)}
-                >
-                  <Text style={styles.deleteButtonText}>Delete</Text>
-                </Pressable>
-              </View>
+                </View>
+              )}
 
               {/* Bottom: the daily reminder controls */}
               <View style={styles.reminderRow}>
@@ -635,6 +692,22 @@ const styles = StyleSheet.create({
     textDecorationLine: 'line-through',
     color: '#888',
   },
+  goalButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  editButton: {
+    backgroundColor: '#4a6572',
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginRight: 8,
+  },
+  editButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
   deleteButton: {
     backgroundColor: '#c0392b',
     borderRadius: 6,
@@ -643,6 +716,45 @@ const styles = StyleSheet.create({
   },
   deleteButtonText: {
     color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  // Renaming a goal
+  editRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  editInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#0e7a4f',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 16,
+    marginRight: 8,
+  },
+  editSaveButton: {
+    backgroundColor: '#0e7a4f',
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginRight: 8,
+  },
+  editSaveText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  editCancelButton: {
+    borderWidth: 1,
+    borderColor: '#999',
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  editCancelText: {
+    color: '#555',
     fontSize: 14,
     fontWeight: 'bold',
   },
