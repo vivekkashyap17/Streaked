@@ -90,6 +90,13 @@ function formatDate(d: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+// Turn a "YYYY-MM-DD" string back into a local Date (midnight, local time).
+// Building it from parts avoids the timezone shift you get from new Date(str).
+function parseDate(s: string): Date {
+  const [year, month, day] = s.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
 // A readable label like "Mon, Jul 7".
 function dayLabel(d: Date): string {
   return `${WEEKDAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}`;
@@ -260,6 +267,31 @@ export default function App() {
       cursor.setDate(cursor.getDate() - 1); // go to the previous day
     }
     return streak;
+  };
+
+  // Best streak: the longest run of consecutive done days ever, anywhere in
+  // the history (not just up to today). Also computed fresh, never stored.
+  const bestStreakFor = (goalId: string): number => {
+    const doneDates = new Set(
+      logs.filter((l) => l.goalId === goalId && l.done).map((l) => l.date),
+    );
+    let best = 0;
+    doneDates.forEach((date) => {
+      // Only count from the START of a run: skip a day if the day before it
+      // was also done (that day belongs to a run we've already counted).
+      const dayBefore = parseDate(date);
+      dayBefore.setDate(dayBefore.getDate() - 1);
+      if (doneDates.has(formatDate(dayBefore))) return;
+      // Count forward from this start day until the run breaks.
+      let run = 0;
+      const cursor = parseDate(date);
+      while (doneDates.has(formatDate(cursor))) {
+        run += 1;
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      if (run > best) best = run;
+    });
+    return best;
   };
 
   // Total: how many days this goal was ever done (gaps don't matter).
@@ -492,6 +524,7 @@ export default function App() {
         renderItem={({ item }) => {
           const done = isDoneToday(item.id);
           const streak = streakFor(item.id);
+          const best = bestStreakFor(item.id);
           const total = totalFor(item.id);
           const hasReminder =
             item.reminderHour !== undefined &&
@@ -534,7 +567,7 @@ export default function App() {
                         {item.name}
                       </Text>
                       <Text style={styles.goalStats}>
-                        🔥 Streak {streak}  ·  Total {total}
+                        🔥 Streak {streak}  ·  Best {best}  ·  Total {total}
                       </Text>
                     </View>
                   </Pressable>
