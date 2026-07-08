@@ -33,6 +33,7 @@ type Goal = {
   // when it's off. notificationId is what we use to cancel the reminder.
   reminderHour?: number; // 0-23
   reminderMinute?: number; // 0-59
+  reminderSound?: string; // which alarm sound: a key from REMINDER_SOUNDS
   notificationId?: string;
 };
 
@@ -56,6 +57,30 @@ const MONTHS = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ];
+
+// The alarm sounds the user can pick from. Each sound gets its own Android
+// notification channel, because a channel's sound is fixed once it is created.
+// `file` must match a file in assets/sounds AND the list in app.json's
+// expo-notifications plugin.
+const REMINDER_SOUNDS = [
+  {
+    key: 'vibration',
+    label: 'Vibration',
+    file: 'vibration.wav',
+    channelId: 'reminders-vibration',
+  },
+  {
+    key: 'effect',
+    label: 'Sound effect',
+    file: 'vibration_sound_effect.wav',
+    channelId: 'reminders-effect',
+  },
+];
+
+// Look up a sound by its key (falls back to the first sound).
+function soundByKey(key?: string) {
+  return REMINDER_SOUNDS.find((s) => s.key === key) ?? REMINDER_SOUNDS[0];
+}
 
 // Format a Date as YYYY-MM-DD, using the phone's local time.
 function formatDate(d: Date): string {
@@ -107,12 +132,19 @@ export default function App() {
     });
   }, []);
 
-  // Create the Android notification channel once (needed on Android for
-  // notifications to show; harmless on other platforms).
+  // Create one Android notification channel per alarm sound (needed on Android;
+  // harmless on other platforms). Each channel is high-importance and vibrates,
+  // so a reminder feels like an alarm. A channel's sound can't be changed after
+  // it is created, which is why every sound gets its own channel.
   useEffect(() => {
-    Notifications.setNotificationChannelAsync('reminders', {
-      name: 'Reminders',
-      importance: Notifications.AndroidImportance.DEFAULT,
+    REMINDER_SOUNDS.forEach((s) => {
+      Notifications.setNotificationChannelAsync(s.channelId, {
+        name: `Reminders (${s.label})`,
+        importance: Notifications.AndroidImportance.MAX,
+        sound: s.file,
+        vibrationPattern: [0, 250, 250, 250],
+        enableVibrate: true,
+      });
     });
   }, []);
 
@@ -226,16 +258,33 @@ export default function App() {
     if (!allowed) {
       Alert.alert(
         'Notifications are off',
-        'To get reminders, allow notifications for Expo Go in your phone settings, then try again.',
+        'To get reminders, allow notifications for Streaked in your phone settings, then try again.',
       );
       return;
     }
 
-    const goal = goals.find((g) => g.id === goalId);
-    if (!goal) return;
-
+    // Ask which alarm sound to use, then schedule the reminder.
     const hour = date.getHours();
     const minute = date.getMinutes();
+    Alert.alert('Choose an alarm sound', undefined, [
+      ...REMINDER_SOUNDS.map((s) => ({
+        text: s.label,
+        onPress: () => scheduleReminder(goalId, hour, minute, s.key),
+      })),
+      { text: 'Cancel', style: 'cancel' as const },
+    ]);
+  };
+
+  // Schedule (or reschedule) a goal's daily reminder with the chosen sound.
+  const scheduleReminder = async (
+    goalId: string,
+    hour: number,
+    minute: number,
+    soundKey: string,
+  ) => {
+    const goal = goals.find((g) => g.id === goalId);
+    if (!goal) return;
+    const sound = soundByKey(soundKey);
 
     try {
       // If this goal already had a reminder, cancel the old one first.
@@ -243,14 +292,19 @@ export default function App() {
         await Notifications.cancelScheduledNotificationAsync(goal.notificationId);
       }
 
-      // Schedule a notification that repeats every day at this time.
+      // Schedule a notification that repeats every day at this time, using the
+      // channel (and sound) the user picked.
       const notificationId = await Notifications.scheduleNotificationAsync({
-        content: { title: 'Streaked reminder', body: goal.name },
+        content: {
+          title: 'Streaked reminder',
+          body: goal.name,
+          sound: sound.file,
+        },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.DAILY,
           hour,
           minute,
-          channelId: 'reminders',
+          channelId: sound.channelId,
         },
       });
 
@@ -258,7 +312,13 @@ export default function App() {
       saveGoals(
         goals.map((g) =>
           g.id === goalId
-            ? { ...g, reminderHour: hour, reminderMinute: minute, notificationId }
+            ? {
+                ...g,
+                reminderHour: hour,
+                reminderMinute: minute,
+                reminderSound: soundKey,
+                notificationId,
+              }
             : g,
         ),
       );
@@ -283,11 +343,50 @@ export default function App() {
               ...g,
               reminderHour: undefined,
               reminderMinute: undefined,
+              reminderSound: undefined,
               notificationId: undefined,
             }
           : g,
       ),
     );
+  };
+
+  // --- Temporary debug button: test an alarm sound right now ---
+
+  // Prints the real Android channel settings to the Metro console, then lets
+  // you fire a test notification 3 seconds later so you can hear the sound.
+  const testAlarm = async () => {
+    const allowed = await ensurePermission();
+    if (!allowed) {
+      Alert.alert('Notifications are off', 'Allow notifications for Streaked first.');
+      return;
+    }
+    // Show what each channel actually has (sound + importance) in the terminal.
+    const channels = await Notifications.getNotificationChannelsAsync();
+    console.log('NOTIFICATION CHANNELS:', JSON.stringify(channels, null, 2));
+
+    Alert.alert(
+      'Test alarm',
+      'Pick a sound. It fires in 3 seconds — lock your phone to hear it as a real reminder.',
+      [
+        ...REMINDER_SOUNDS.map((s) => ({
+          text: s.label,
+          onPress: () => fireTestSound(s),
+        })),
+        { text: 'Cancel', style: 'cancel' as const },
+      ],
+    );
+  };
+
+  const fireTestSound = async (sound: (typeof REMINDER_SOUNDS)[number]) => {
+    await Notifications.scheduleNotificationAsync({
+      content: { title: 'Test alarm', body: sound.label, sound: sound.file },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+        seconds: 3,
+        channelId: sound.channelId,
+      },
+    });
   };
 
   // --- Temporary debug button: show every saved log in a popup ---
@@ -444,6 +543,8 @@ export default function App() {
                   <>
                     <Text style={styles.reminderText}>
                       🔔 {formatTime(item.reminderHour!, item.reminderMinute!)}
+                      {'  ·  '}
+                      {soundByKey(item.reminderSound).label}
                     </Text>
                     <Pressable
                       style={styles.reminderOffButton}
@@ -466,7 +567,10 @@ export default function App() {
         }}
       />
 
-      {/* Temporary debug button — will be removed in a later phase */}
+      {/* Temporary debug buttons — will be removed in a later phase */}
+      <Pressable style={styles.debugButton} onPress={testAlarm}>
+        <Text style={styles.debugButtonText}>Test alarm now (debug)</Text>
+      </Pressable>
       <Pressable style={styles.debugButton} onPress={showAllLogs}>
         <Text style={styles.debugButtonText}>Show saved logs (debug)</Text>
       </Pressable>
