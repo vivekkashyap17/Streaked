@@ -171,6 +171,22 @@ export default function App() {
     saveGoals(goals.filter((goal) => goal.id !== id));
   };
 
+  // Ask before deleting, so a goal can't vanish on a single accidental tap.
+  const confirmDeleteGoal = (goal: Goal) => {
+    Alert.alert(
+      'Delete goal?',
+      `"${goal.name}" will be removed from your list. This can't be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => deleteGoal(goal.id),
+        },
+      ],
+    );
+  };
+
   // --- Renaming a goal ---
 
   // Start editing: show the goal's name in an input box.
@@ -531,7 +547,7 @@ export default function App() {
                     </Pressable>
                     <Pressable
                       style={styles.deleteButton}
-                      onPress={() => deleteGoal(item.id)}
+                      onPress={() => confirmDeleteGoal(item)}
                     >
                       <Text style={styles.deleteButtonText}>Delete</Text>
                     </Pressable>
