@@ -53,9 +53,14 @@ const GOALS_KEY = 'goals';
 const LOGS_KEY = 'logs';
 // The saved theme choice.
 const THEME_KEY = 'themePref';
+// The saved sort choice.
+const SORT_KEY = 'sortMode';
 
 // Which theme the user picked. 'system' follows the phone's light/dark setting.
 type ThemePref = 'light' | 'dark' | 'system';
+
+// How to order the goals list. 'manual' = the user's own ↑/↓ order.
+type SortMode = 'manual' | 'streak' | 'todo' | 'name';
 
 // Used to build friendly day labels without relying on Intl
 // (React Native's engine has limited Intl support).
@@ -204,6 +209,8 @@ export default function App() {
   const [editingText, setEditingText] = useState('');
   // The chosen theme: 'system' (follow the phone), or a forced 'light' / 'dark'.
   const [themePref, setThemePref] = useState<ThemePref>('system');
+  // How the goals list is ordered (defaults to the user's manual order).
+  const [sortMode, setSortMode] = useState<SortMode>('manual');
 
   // Work out which theme to use, then build the styles for it. When the choice
   // is 'system' we follow the phone's setting; otherwise we force one.
@@ -220,6 +227,16 @@ export default function App() {
       ? '🌙 Dark'
       : '⚙️ System';
 
+  // A short label for the sort button.
+  const sortLabel =
+    sortMode === 'streak'
+      ? 'Streak'
+      : sortMode === 'todo'
+      ? 'To-do first'
+      : sortMode === 'name'
+      ? 'Name'
+      : 'Manual';
+
   const today = todayString();
 
   // Load the saved goals and logs once, when the app starts.
@@ -233,6 +250,16 @@ export default function App() {
     AsyncStorage.getItem(THEME_KEY).then((stored) => {
       if (stored === 'light' || stored === 'dark' || stored === 'system') {
         setThemePref(stored);
+      }
+    });
+    AsyncStorage.getItem(SORT_KEY).then((stored) => {
+      if (
+        stored === 'manual' ||
+        stored === 'streak' ||
+        stored === 'todo' ||
+        stored === 'name'
+      ) {
+        setSortMode(stored);
       }
     });
   }, []);
@@ -295,6 +322,20 @@ export default function App() {
       themePref === 'system' ? 'light' : themePref === 'light' ? 'dark' : 'system';
     setThemePref(next);
     AsyncStorage.setItem(THEME_KEY, next);
+  };
+
+  // Cycle the sort: Manual → Streak → To-do → Name → Manual, and remember it.
+  const cycleSort = () => {
+    const next: SortMode =
+      sortMode === 'manual'
+        ? 'streak'
+        : sortMode === 'streak'
+        ? 'todo'
+        : sortMode === 'todo'
+        ? 'name'
+        : 'manual';
+    setSortMode(next);
+    AsyncStorage.setItem(SORT_KEY, next);
   };
 
   // Ask before deleting, so a goal can't vanish on a single accidental tap.
@@ -422,6 +463,22 @@ export default function App() {
   const wasDoneOn = (goalId: string, date: string): boolean => {
     return logs.some((l) => l.goalId === goalId && l.date === date && l.done);
   };
+
+  // The goals in the order to show them. Sorting is display-only — it never
+  // changes the saved order (that stays as the manual ↑/↓ arrangement).
+  // (Defined here, after the helpers it uses like streakFor / isDoneToday.)
+  const sortedGoals = [...goals];
+  if (sortMode === 'streak') {
+    // Highest current streak first (ties keep their existing order).
+    sortedGoals.sort((a, b) => streakFor(b.id) - streakFor(a.id));
+  } else if (sortMode === 'todo') {
+    // Today's not-yet-done goals first.
+    sortedGoals.sort(
+      (a, b) => Number(isDoneToday(a.id)) - Number(isDoneToday(b.id)),
+    );
+  } else if (sortMode === 'name') {
+    sortedGoals.sort((a, b) => a.name.localeCompare(b.name));
+  }
 
   // --- Reminders (Phase 5) ---
 
@@ -767,9 +824,18 @@ export default function App() {
         </Pressable>
       </View>
 
+      {/* Sort control — tap to cycle Manual → Streak → To-do → Name */}
+      {goals.length > 0 && (
+        <View style={styles.sortRow}>
+          <Pressable style={styles.sortButton} onPress={cycleSort}>
+            <Text style={styles.sortButtonText}>↕  Sort: {sortLabel}</Text>
+          </Pressable>
+        </View>
+      )}
+
       {/* The list of goals */}
       <FlatList
-        data={goals}
+        data={sortedGoals}
         keyExtractor={(goal) => goal.id}
         ListEmptyComponent={
           <Text style={styles.empty}>No goals yet. Add one above.</Text>
@@ -874,29 +940,32 @@ export default function App() {
                   )}
                 </View>
 
-                {/* Move this goal up or down (disabled at the list edges) */}
-                <View style={styles.reorderButtons}>
-                  <Pressable
-                    style={[
-                      styles.reorderButton,
-                      index === 0 && styles.reorderDisabled,
-                    ]}
-                    onPress={() => moveGoal(index, -1)}
-                    disabled={index === 0}
-                  >
-                    <Text style={styles.reorderButtonText}>↑</Text>
-                  </Pressable>
-                  <Pressable
-                    style={[
-                      styles.reorderButton,
-                      index === goals.length - 1 && styles.reorderDisabled,
-                    ]}
-                    onPress={() => moveGoal(index, 1)}
-                    disabled={index === goals.length - 1}
-                  >
-                    <Text style={styles.reorderButtonText}>↓</Text>
-                  </Pressable>
-                </View>
+                {/* Move up/down — only in Manual sort, where position matters.
+                    (Disabled at the list edges.) */}
+                {sortMode === 'manual' && (
+                  <View style={styles.reorderButtons}>
+                    <Pressable
+                      style={[
+                        styles.reorderButton,
+                        index === 0 && styles.reorderDisabled,
+                      ]}
+                      onPress={() => moveGoal(index, -1)}
+                      disabled={index === 0}
+                    >
+                      <Text style={styles.reorderButtonText}>↑</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[
+                        styles.reorderButton,
+                        index === goals.length - 1 && styles.reorderDisabled,
+                      ]}
+                      onPress={() => moveGoal(index, 1)}
+                      disabled={index === goals.length - 1}
+                    >
+                      <Text style={styles.reorderButtonText}>↓</Text>
+                    </Pressable>
+                  </View>
+                )}
               </View>
             </View>
           );
@@ -975,7 +1044,23 @@ function makeStyles(theme: Theme) {
     },
     inputRow: {
       flexDirection: 'row',
-      marginBottom: 20,
+      marginBottom: 16,
+    },
+    sortRow: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      marginBottom: 14,
+    },
+    sortButton: {
+      backgroundColor: theme.surfaceAlt,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+    },
+    sortButtonText: {
+      color: theme.muted,
+      fontSize: 13,
+      fontWeight: 'bold',
     },
     input: {
       flex: 1,
