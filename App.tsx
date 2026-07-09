@@ -658,23 +658,34 @@ export default function App() {
   };
 
   // Archived goals are hidden from the list, the summary, and history.
-  const activeGoals = goals.filter((g) => !g.archived);
+  // These derived lists are memoised so unrelated re-renders (e.g. typing in
+  // the "Enter a goal" box) don't re-filter, re-sort, or re-count every time.
+  const activeGoals = useMemo(
+    () => goals.filter((g) => !g.archived),
+    [goals],
+  );
 
   // The goals in the order to show them. Sorting is display-only — it never
   // changes the saved order (that stays as the manual ↑/↓ arrangement).
-  // (Defined here, after the helpers it uses like streakFor / isDoneToday.)
-  const sortedGoals = [...activeGoals];
-  if (sortMode === 'streak') {
-    // Highest current streak first (ties keep their existing order).
-    sortedGoals.sort((a, b) => streakFor(b.id) - streakFor(a.id));
-  } else if (sortMode === 'todo') {
-    // Today's not-yet-done goals first.
-    sortedGoals.sort(
-      (a, b) => Number(isDoneToday(a.id)) - Number(isDoneToday(b.id)),
-    );
-  } else if (sortMode === 'name') {
-    sortedGoals.sort((a, b) => a.name.localeCompare(b.name));
-  }
+  const sortedGoals = useMemo(() => {
+    const list = [...activeGoals];
+    if (sortMode === 'streak') {
+      // Highest current streak first (ties keep their existing order).
+      list.sort((a, b) => streakFor(b.id) - streakFor(a.id));
+    } else if (sortMode === 'todo') {
+      // Today's not-yet-done goals first.
+      list.sort((a, b) => Number(isDoneToday(a.id)) - Number(isDoneToday(b.id)));
+    } else if (sortMode === 'name') {
+      list.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return list;
+  }, [activeGoals, logs, sortMode, today]);
+
+  // How many of the visible goals are ticked today (for the summary header).
+  const doneCount = useMemo(
+    () => activeGoals.filter((g) => isDoneToday(g.id)).length,
+    [activeGoals, logs, today],
+  );
 
   // --- Reminders (Phase 5) ---
 
@@ -1142,9 +1153,6 @@ export default function App() {
     );
   }
 
-  // How many of the visible goals are ticked today (for the summary header).
-  const doneCount = activeGoals.filter((g) => isDoneToday(g.id)).length;
-
   // ===== Main screen: today's goals =====
   return (
     <View style={styles.container}>
@@ -1237,7 +1245,7 @@ export default function App() {
                   otherwise the checkbox + name/stats (tap to tick) and the
                   Edit / Delete buttons. */}
               {editingGoalId === item.id ? (
-                <View style={styles.editBox}>
+                <View>
                   <TextInput
                     style={styles.editInput}
                     value={editingText}
@@ -1647,9 +1655,6 @@ function makeStyles(theme: Theme) {
       backgroundColor: theme.dangerSoft,
     },
     // Editing a goal (name + note)
-    editBox: {
-      // column: two inputs stacked, then a row of buttons
-    },
     editInput: {
       borderWidth: 1,
       borderColor: theme.accent,
