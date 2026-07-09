@@ -32,10 +32,12 @@ Notifications.setNotificationHandler({
   }),
 });
 
-// A single goal. Name plus an optional daily reminder.
+// A single goal. Name plus an optional note, reminder, and archived flag.
 type Goal = {
   id: string;
   name: string;
+  note?: string; // optional short description shown under the goal
+  archived?: boolean; // archived goals are hidden from the list but kept
   // These three are set together when a reminder is on, and cleared together
   // when it's off. notificationId is what we use to cancel the reminder.
   reminderHour?: number; // 0-23
@@ -267,7 +269,7 @@ export default function App() {
   const [logs, setLogs] = useState<DailyLog[]>([]);
   // Which screen is showing.
   const [screen, setScreen] = useState<
-    'goals' | 'history' | 'calendar' | 'settings'
+    'goals' | 'history' | 'calendar' | 'settings' | 'archived'
   >('goals');
   // Which goal the calendar screen is showing (null = none chosen).
   const [calendarGoalId, setCalendarGoalId] = useState<string | null>(null);
@@ -284,9 +286,11 @@ export default function App() {
   // The audio player used to preview a sound (and a timer to stop it).
   const previewPlayerRef = useRef<AudioPlayer | null>(null);
   const previewTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // The goal we're currently renaming (null = not editing), and its edited text.
+  // The goal we're currently editing (null = not editing), and its edited
+  // name + note.
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
+  const [editingNote, setEditingNote] = useState('');
   // The chosen theme: 'system' (follow the phone), or a forced 'light' / 'dark'.
   const [themePref, setThemePref] = useState<ThemePref>('system');
   // How the goals list is ordered (defaults to the user's manual order).
@@ -378,13 +382,18 @@ export default function App() {
     setScreen('calendar');
   };
 
-  // Move a goal up (-1) or down (+1) in the list by swapping it with its
-  // neighbour. Reordering only changes the goals' order, not their logs.
-  const moveGoal = (index: number, direction: -1 | 1) => {
-    const target = index + direction;
-    if (target < 0 || target >= goals.length) return; // already at the edge
+  // Move a goal up (-1) or down (+1) among the visible (non-archived) goals,
+  // swapping it with its neighbour. Works on ids so it's correct even when
+  // archived goals are filtered out of the list. Order-only; logs untouched.
+  const moveGoal = (goalId: string, direction: -1 | 1) => {
+    const active = goals.filter((g) => !g.archived);
+    const pos = active.findIndex((g) => g.id === goalId);
+    const targetPos = pos + direction;
+    if (targetPos < 0 || targetPos >= active.length) return; // at the edge
+    const ia = goals.findIndex((g) => g.id === active[pos].id);
+    const ib = goals.findIndex((g) => g.id === active[targetPos].id);
     const newGoals = [...goals];
-    [newGoals[index], newGoals[target]] = [newGoals[target], newGoals[index]];
+    [newGoals[ia], newGoals[ib]] = [newGoals[ib], newGoals[ia]];
     saveGoals(newGoals);
   };
 
@@ -518,25 +527,45 @@ export default function App() {
 
   // --- Renaming a goal ---
 
-  // Start editing: show the goal's name in an input box.
+  // Start editing: show the goal's name + note in the input boxes.
   const startEditGoal = (goal: Goal) => {
     setEditingGoalId(goal.id);
     setEditingText(goal.name);
+    setEditingNote(goal.note ?? '');
   };
 
   // Stop editing without saving.
   const cancelEdit = () => {
     setEditingGoalId(null);
     setEditingText('');
+    setEditingNote('');
   };
 
-  // Save the new name onto the goal (only the name changes; logs are untouched).
+  // Save the new name + note onto the goal (logs are untouched).
   const saveEdit = (goalId: string) => {
     const name = editingText.trim();
     if (name === '') return; // ignore an empty name — stay in edit mode
-    saveGoals(goals.map((g) => (g.id === goalId ? { ...g, name } : g)));
-    setEditingGoalId(null);
-    setEditingText('');
+    const note = editingNote.trim();
+    saveGoals(
+      goals.map((g) =>
+        g.id === goalId ? { ...g, name, note: note || undefined } : g,
+      ),
+    );
+    cancelEdit();
+  };
+
+  // Archive a goal (hide it from the list but keep its logs) / bring it back.
+  const archiveGoal = (goalId: string) => {
+    saveGoals(
+      goals.map((g) => (g.id === goalId ? { ...g, archived: true } : g)),
+    );
+    cancelEdit(); // leave edit mode
+  };
+
+  const unarchiveGoal = (goalId: string) => {
+    saveGoals(
+      goals.map((g) => (g.id === goalId ? { ...g, archived: false } : g)),
+    );
   };
 
   // --- Logs: save, read today, tick/untick today ---
@@ -628,10 +657,13 @@ export default function App() {
     return logs.some((l) => l.goalId === goalId && l.date === date && l.done);
   };
 
+  // Archived goals are hidden from the list, the summary, and history.
+  const activeGoals = goals.filter((g) => !g.archived);
+
   // The goals in the order to show them. Sorting is display-only — it never
   // changes the saved order (that stays as the manual ↑/↓ arrangement).
   // (Defined here, after the helpers it uses like streakFor / isDoneToday.)
-  const sortedGoals = [...goals];
+  const sortedGoals = [...activeGoals];
   if (sortMode === 'streak') {
     // Highest current streak first (ties keep their existing order).
     sortedGoals.sort((a, b) => streakFor(b.id) - streakFor(a.id));
@@ -968,10 +1000,10 @@ export default function App() {
                 {item.date === today ? `${item.label} · Today` : item.label}
               </Text>
 
-              {goals.length === 0 ? (
+              {activeGoals.length === 0 ? (
                 <Text style={styles.dayEmpty}>No goals yet.</Text>
               ) : (
-                goals.map((goal) => {
+                activeGoals.map((goal) => {
                   const done = wasDoneOn(goal.id, item.date);
                   return (
                     <View key={goal.id} style={styles.historyRow}>
@@ -1044,13 +1076,74 @@ export default function App() {
           </Pressable>
         </View>
 
+        <Text style={styles.settingsLabel}>Goals</Text>
+        <Pressable
+          style={styles.settingsRowButton}
+          onPress={() => setScreen('archived')}
+        >
+          <Text style={styles.settingsRowButtonText}>
+            Archived goals ({goals.filter((g) => g.archived).length})
+          </Text>
+          <Text style={styles.settingsRowChevron}>›</Text>
+        </Pressable>
+
         <StatusBar style="auto" />
       </View>
     );
   }
 
-  // How many goals are ticked today (for the summary header).
-  const doneCount = goals.filter((g) => isDoneToday(g.id)).length;
+  // ===== Archived screen: goals that are hidden but kept =====
+  if (screen === 'archived') {
+    const archivedGoals = goals.filter((g) => g.archived);
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Archived</Text>
+          <Pressable
+            style={styles.navButton}
+            onPress={() => setScreen('settings')}
+          >
+            <Text style={styles.navButtonText}>Back</Text>
+          </Pressable>
+        </View>
+
+        <FlatList
+          data={archivedGoals}
+          keyExtractor={(g) => g.id}
+          style={styles.historyList}
+          ListEmptyComponent={
+            <Text style={styles.empty}>No archived goals.</Text>
+          }
+          renderItem={({ item }) => (
+            <View style={styles.archivedRow}>
+              <Text style={styles.archivedName} numberOfLines={2}>
+                {item.name}
+              </Text>
+              <View style={styles.goalButtons}>
+                <Pressable
+                  style={styles.smallButton}
+                  onPress={() => unarchiveGoal(item.id)}
+                >
+                  <Text style={styles.smallButtonText}>Unarchive</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.iconButton, styles.iconButtonDanger]}
+                  onPress={() => confirmDeleteGoal(item)}
+                >
+                  <Text style={styles.iconButtonText}>🗑️</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+        />
+
+        <StatusBar style="auto" />
+      </View>
+    );
+  }
+
+  // How many of the visible goals are ticked today (for the summary header).
+  const doneCount = activeGoals.filter((g) => isDoneToday(g.id)).length;
 
   // ===== Main screen: today's goals =====
   return (
@@ -1075,18 +1168,18 @@ export default function App() {
       <Text style={styles.subtitle}>Today · {today}</Text>
 
       {/* Summary: how many goals are done today, with a progress bar */}
-      {goals.length > 0 && (
+      {activeGoals.length > 0 && (
         <View style={styles.summaryCard}>
           <Text style={styles.summaryText}>
-            {doneCount === goals.length
-              ? `All ${goals.length} done today 🎉`
-              : `${doneCount} of ${goals.length} done today`}
+            {doneCount === activeGoals.length
+              ? `All ${activeGoals.length} done today 🎉`
+              : `${doneCount} of ${activeGoals.length} done today`}
           </Text>
           <View style={styles.progressTrack}>
             <View
               style={[
                 styles.progressFill,
-                { width: `${(doneCount / goals.length) * 100}%` },
+                { width: `${(doneCount / activeGoals.length) * 100}%` },
               ]}
             />
           </View>
@@ -1144,23 +1237,42 @@ export default function App() {
                   otherwise the checkbox + name/stats (tap to tick) and the
                   Edit / Delete buttons. */}
               {editingGoalId === item.id ? (
-                <View style={styles.editRow}>
+                <View style={styles.editBox}>
                   <TextInput
                     style={styles.editInput}
                     value={editingText}
                     onChangeText={setEditingText}
+                    placeholder="Goal name"
+                    placeholderTextColor={theme.faint}
                     autoFocus
-                    onSubmitEditing={() => saveEdit(item.id)}
                   />
-                  <Pressable
-                    style={styles.editSaveButton}
-                    onPress={() => saveEdit(item.id)}
-                  >
-                    <Text style={styles.editSaveText}>Save</Text>
-                  </Pressable>
-                  <Pressable style={styles.editCancelButton} onPress={cancelEdit}>
-                    <Text style={styles.editCancelText}>Cancel</Text>
-                  </Pressable>
+                  <TextInput
+                    style={styles.editInput}
+                    value={editingNote}
+                    onChangeText={setEditingNote}
+                    placeholder="Add a note (optional)"
+                    placeholderTextColor={theme.faint}
+                  />
+                  <View style={styles.editButtons}>
+                    <Pressable
+                      style={styles.editSaveButton}
+                      onPress={() => saveEdit(item.id)}
+                    >
+                      <Text style={styles.editSaveText}>Save</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.editCancelButton}
+                      onPress={cancelEdit}
+                    >
+                      <Text style={styles.editCancelText}>Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.archiveButton}
+                      onPress={() => archiveGoal(item.id)}
+                    >
+                      <Text style={styles.archiveButtonText}>Archive</Text>
+                    </Pressable>
+                  </View>
                 </View>
               ) : (
                 <>
@@ -1208,6 +1320,11 @@ export default function App() {
                   <Text style={styles.goalStats}>
                     🔥 Streak {streak}   ·   Best {best}   ·   Total {total}
                   </Text>
+
+                  {/* Optional note under the stats */}
+                  {item.note ? (
+                    <Text style={styles.goalNote}>{item.note}</Text>
+                  ) : null}
                 </>
               )}
 
@@ -1247,7 +1364,7 @@ export default function App() {
                         styles.reorderButton,
                         index === 0 && styles.reorderDisabled,
                       ]}
-                      onPress={() => moveGoal(index, -1)}
+                      onPress={() => moveGoal(item.id, -1)}
                       disabled={index === 0}
                     >
                       <Text style={styles.reorderButtonText}>↑</Text>
@@ -1255,10 +1372,11 @@ export default function App() {
                     <Pressable
                       style={[
                         styles.reorderButton,
-                        index === goals.length - 1 && styles.reorderDisabled,
+                        index === sortedGoals.length - 1 &&
+                          styles.reorderDisabled,
                       ]}
-                      onPress={() => moveGoal(index, 1)}
-                      disabled={index === goals.length - 1}
+                      onPress={() => moveGoal(item.id, 1)}
+                      disabled={index === sortedGoals.length - 1}
                     >
                       <Text style={styles.reorderButtonText}>↓</Text>
                     </Pressable>
@@ -1528,13 +1646,11 @@ function makeStyles(theme: Theme) {
     iconButtonDanger: {
       backgroundColor: theme.dangerSoft,
     },
-    // Renaming a goal
-    editRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
+    // Editing a goal (name + note)
+    editBox: {
+      // column: two inputs stacked, then a row of buttons
     },
     editInput: {
-      flex: 1,
       borderWidth: 1,
       borderColor: theme.accent,
       backgroundColor: theme.inputBg,
@@ -1543,12 +1659,16 @@ function makeStyles(theme: Theme) {
       paddingHorizontal: 10,
       paddingVertical: 8,
       fontSize: 16,
-      marginRight: 8,
+      marginBottom: 8,
+    },
+    editButtons: {
+      flexDirection: 'row',
+      alignItems: 'center',
     },
     editSaveButton: {
       backgroundColor: theme.accent,
       borderRadius: 8,
-      paddingHorizontal: 12,
+      paddingHorizontal: 14,
       paddingVertical: 8,
       marginRight: 8,
     },
@@ -1561,13 +1681,32 @@ function makeStyles(theme: Theme) {
       borderWidth: 1,
       borderColor: theme.faint,
       borderRadius: 8,
-      paddingHorizontal: 12,
+      paddingHorizontal: 14,
       paddingVertical: 8,
+      marginRight: 8,
     },
     editCancelText: {
       color: theme.muted,
       fontSize: 14,
       fontWeight: 'bold',
+    },
+    archiveButton: {
+      backgroundColor: theme.surfaceAlt,
+      borderRadius: 8,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+    },
+    archiveButtonText: {
+      color: theme.text,
+      fontSize: 14,
+      fontWeight: 'bold',
+    },
+    goalNote: {
+      fontSize: 13,
+      color: theme.muted,
+      fontStyle: 'italic',
+      marginTop: 6,
+      marginLeft: 38,
     },
     reminderRow: {
       flexDirection: 'row',
@@ -1697,6 +1836,55 @@ function makeStyles(theme: Theme) {
     backupButtonText: {
       color: theme.text,
       fontSize: 14,
+      fontWeight: 'bold',
+    },
+    // Settings row link (e.g. Archived goals)
+    settingsRowButton: {
+      backgroundColor: theme.surfaceAlt,
+      borderRadius: 10,
+      paddingHorizontal: 14,
+      paddingVertical: 14,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    settingsRowButtonText: {
+      color: theme.text,
+      fontSize: 15,
+      fontWeight: 'bold',
+    },
+    settingsRowChevron: {
+      color: theme.muted,
+      fontSize: 20,
+    },
+    // Archived screen
+    archivedRow: {
+      backgroundColor: theme.surface,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: theme.border,
+      padding: 14,
+      marginBottom: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    archivedName: {
+      flex: 1,
+      fontSize: 16,
+      color: theme.text,
+      marginRight: 10,
+    },
+    smallButton: {
+      backgroundColor: theme.surfaceAlt,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      marginRight: 8,
+    },
+    smallButtonText: {
+      color: theme.text,
+      fontSize: 13,
       fontWeight: 'bold',
     },
     // Sound picker modal
