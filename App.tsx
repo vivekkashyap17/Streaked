@@ -1049,6 +1049,9 @@ export default function App() {
     );
   }
 
+  // How many goals are ticked today (for the summary header).
+  const doneCount = goals.filter((g) => isDoneToday(g.id)).length;
+
   // ===== Main screen: today's goals =====
   return (
     <View style={styles.container}>
@@ -1070,6 +1073,25 @@ export default function App() {
         </View>
       </View>
       <Text style={styles.subtitle}>Today · {today}</Text>
+
+      {/* Summary: how many goals are done today, with a progress bar */}
+      {goals.length > 0 && (
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryText}>
+            {doneCount === goals.length
+              ? `All ${goals.length} done today 🎉`
+              : `${doneCount} of ${goals.length} done today`}
+          </Text>
+          <View style={styles.progressTrack}>
+            <View
+              style={[
+                styles.progressFill,
+                { width: `${(doneCount / goals.length) * 100}%` },
+              ]}
+            />
+          </View>
+        </View>
+      )}
 
       {/* Input row: type a goal and press Add */}
       <View style={styles.inputRow}>
@@ -1100,7 +1122,13 @@ export default function App() {
         data={sortedGoals}
         keyExtractor={(goal) => goal.id}
         ListEmptyComponent={
-          <Text style={styles.empty}>No goals yet. Add one above.</Text>
+          <View style={styles.emptyBox}>
+            <Text style={styles.emptyEmoji}>🎯</Text>
+            <Text style={styles.emptyTitle}>Start your first streak</Text>
+            <Text style={styles.emptyHint}>
+              Add a goal above and tick it each day to build a streak.
+            </Text>
+          </View>
         }
         renderItem={({ item, index }) => {
           const done = isDoneToday(item.id);
@@ -1607,6 +1635,51 @@ function makeStyles(theme: Theme) {
       color: theme.muted,
       textAlign: 'center',
       marginTop: 20,
+    },
+    summaryCard: {
+      backgroundColor: theme.surfaceAlt,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      marginBottom: 18,
+    },
+    summaryText: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: theme.text,
+      marginBottom: 8,
+    },
+    progressTrack: {
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: theme.border,
+      overflow: 'hidden',
+    },
+    progressFill: {
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: theme.accent,
+    },
+    emptyBox: {
+      alignItems: 'center',
+      marginTop: 48,
+      paddingHorizontal: 24,
+    },
+    emptyEmoji: {
+      fontSize: 44,
+      marginBottom: 12,
+    },
+    emptyTitle: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: theme.text,
+      marginBottom: 6,
+    },
+    emptyHint: {
+      fontSize: 14,
+      color: theme.muted,
+      textAlign: 'center',
+      lineHeight: 20,
     },
     backupRow: {
       flexDirection: 'row',
